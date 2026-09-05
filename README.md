@@ -35,6 +35,31 @@ carries the same defects as the real files — stray 2001/2098 timestamps,
 negative fares, teleporting taxis — so if your cleaning rules work here they
 will work on the real thing.
 
+## New developer? One-click with Docker
+
+No Java, no Python, no `make` needed on your machine at all — just
+[Docker](https://www.docker.com/products/docker-desktop/), on Windows, macOS
+or Linux alike:
+
+```bash
+docker compose up --build
+```
+
+That single command builds the image (Java 21 + Python + pinned deps baked
+in), downloads a real month of taxi data (Tier 0, ~55 MB), runs the whole
+pipeline — curate → gold → model → bench — and brings the dashboard up at
+[localhost:8501](http://localhost:8501). Data persists in a Docker volume, so
+the second `docker compose up` skips straight to the dashboard.
+
+No network, or want synthetic data instead: `INGEST=0 docker compose up --build`.
+
+Run a different make target instead of the dashboard, e.g. just the tests:
+`docker compose run --rm urbanflow test`.
+
+This is the fastest way for a new teammate to see the whole thing working
+before they've installed anything project-specific — use the dev container
+below once you're actually developing rather than just demoing.
+
 ## Then switch to real data
 
 ```bash

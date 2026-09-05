@@ -1,0 +1,13 @@
+services:
+  urbanflow:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      INGEST: "1"     # 1 = download real TIER=0 data; 0 = synthetic only, no network
+      TIER: "0"
+    volumes:
+      - urbanflow-data:/app/data   # keeps downloaded/curated data across restarts
+
+volumes:
+  urbanflow-data:
