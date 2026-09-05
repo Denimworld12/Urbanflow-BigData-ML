@@ -1,0 +1,389 @@
+<title>UrbanFlow Feasibility</title>
+<style>
+:root{
+  --paper:#F7F5F0;
+  --paper-raised:#FFFFFF;
+  --ink:#211D16;
+  --ink-soft:#6B6455;
+  --line:#DDD6C6;
+  --accent:#B97A1E;
+  --accent-soft:#F1E2C2;
+  --accent-ink:#5A3E10;
+  --good:#3F7A4D;
+  --good-soft:#E3EEE1;
+  --warn:#B5651D;
+  --warn-soft:#F3E6D6;
+  --bad:#A23B3B;
+  --bad-soft:#F5E2E0;
+  --mono-bg:#EDE8DB;
+}
+:root:not([data-theme="light"]){
+  @media (prefers-color-scheme: dark){
+    --paper:#1B1812;
+    --paper-raised:#232019;
+    --ink:#EFE9DB;
+    --ink-soft:#A79E8B;
+    --line:#3A352A;
+    --accent:#E0A34A;
+    --accent-soft:#3A2E17;
+    --accent-ink:#F3D9A8;
+    --good:#7FBF8C;
+    --good-soft:#22321F;
+    --warn:#E0A34A;
+    --warn-soft:#3A2E17;
+    --bad:#E08585;
+    --bad-soft:#3A2020;
+    --mono-bg:#242017;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#1B1812;
+  --paper-raised:#232019;
+  --ink:#EFE9DB;
+  --ink-soft:#A79E8B;
+  --line:#3A352A;
+  --accent:#E0A34A;
+  --accent-soft:#3A2E17;
+  --accent-ink:#F3D9A8;
+  --good:#7FBF8C;
+  --good-soft:#22321F;
+  --warn:#E0A34A;
+  --warn-soft:#3A2E17;
+  --bad:#E08585;
+  --bad-soft:#3A2020;
+  --mono-bg:#242017;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"IBM Plex Sans", -apple-system, sans-serif;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--accent-soft);color:var(--accent-ink);}
+
+.wrap{max-width:920px;margin:0 auto;padding:56px 24px 96px;}
+
+h1,h2,h3{font-family:"Fraunces", Georgia, serif;text-wrap:balance;margin:0;}
+
+header.hero{margin-bottom:44px;}
+.eyebrow{
+  font-family:"IBM Plex Mono", monospace;
+  font-size:12px;
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:10px;
+}
+h1{font-size:clamp(32px,5vw,46px);font-weight:600;letter-spacing:-0.01em;}
+.dek{font-size:17px;color:var(--ink-soft);max-width:62ch;margin-top:14px;}
+
+/* verdict strip */
+.verdicts{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:1px;
+  background:var(--line);
+  border:1px solid var(--line);
+  border-radius:10px;
+  overflow:hidden;
+  margin:32px 0 48px;
+}
+.verdict{background:var(--paper-raised);padding:18px 20px;}
+.verdict .q{font-size:12px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.06em;font-family:"IBM Plex Mono",monospace;}
+.verdict .a{font-family:"Fraunces",serif;font-size:22px;font-weight:600;margin-top:6px;display:flex;align-items:center;gap:8px;}
+.dot{width:9px;height:9px;border-radius:50%;flex:none;}
+.dot.good{background:var(--good);}
+.dot.warn{background:var(--warn);}
+
+section{margin:56px 0;}
+section > h2{font-size:26px;font-weight:600;margin-bottom:6px;}
+.section-note{color:var(--ink-soft);font-size:15px;max-width:66ch;margin-bottom:22px;}
+
+p{margin:0 0 14px;}
+.prose{max-width:68ch;}
+code{font-family:"IBM Plex Mono",monospace;background:var(--mono-bg);padding:1px 6px;border-radius:4px;font-size:0.88em;}
+
+/* pipeline diagram */
+figure{margin:0;}
+figcaption{font-size:13px;color:var(--ink-soft);margin-top:12px;max-width:70ch;}
+.diagram-frame{
+  background:var(--paper-raised);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:20px 8px;
+  overflow-x:auto;
+}
+svg text{fill:currentColor;}
+svg .muted{fill:var(--ink-soft);}
+svg .accent-fill{fill:var(--accent-soft);stroke:var(--accent);}
+svg .plain-fill{fill:var(--paper-raised);stroke:var(--line);}
+svg .arrow{stroke:var(--ink-soft);}
+svg .label{font-family:"IBM Plex Mono", monospace;font-size:11px;}
+svg .title{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:13px;}
+
+/* two column */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:28px;}
+@media (max-width:720px){.cols{grid-template-columns:1fr;}}
+.card{background:var(--paper-raised);border:1px solid var(--line);border-radius:10px;padding:20px 22px;}
+.card h3{font-size:16px;margin-bottom:10px;font-weight:600;}
+.card ul{margin:0;padding-left:18px;}
+.card li{margin-bottom:8px;font-size:14.5px;}
+.card li::marker{color:var(--accent);}
+
+/* dashboard mock */
+.dash-mock{
+  background:var(--paper-raised);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:0;
+  overflow:hidden;
+}
+.dash-tabs{
+  display:flex;
+  gap:2px;
+  background:var(--line);
+  padding:2px;
+}
+.dash-tab{
+  flex:1;
+  text-align:center;
+  padding:10px 8px;
+  font-size:12.5px;
+  font-family:"IBM Plex Mono",monospace;
+  background:var(--paper-raised);
+  color:var(--ink-soft);
+}
+.dash-tab.active{background:var(--accent-soft);color:var(--accent-ink);font-weight:600;}
+.dash-body{padding:22px;display:grid;grid-template-columns:1.3fr 1fr;gap:18px;}
+@media (max-width:640px){.dash-body{grid-template-columns:1fr;}}
+.stat-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+.stat{border:1px solid var(--line);border-radius:8px;padding:12px 14px;}
+.stat .k{font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.04em;}
+.stat .v{font-family:"IBM Plex Mono",monospace;font-size:19px;margin-top:4px;font-variant-numeric:tabular-nums;}
+.chart-box{border:1px solid var(--line);border-radius:8px;padding:14px;}
+.chart-box .cap{font-size:12px;color:var(--ink-soft);margin-bottom:8px;}
+.caveat{
+  font-size:12.5px;
+  color:var(--warn);
+  background:var(--warn-soft);
+  border-radius:6px;
+  padding:8px 10px;
+  margin-top:10px;
+}
+
+/* platform table */
+table{width:100%;border-collapse:collapse;font-size:14.5px;}
+th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:11.5px;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-soft);font-weight:500;padding:8px 12px;border-bottom:1px solid var(--line);}
+td{padding:12px;border-bottom:1px solid var(--line);vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+.pill{display:inline-block;font-size:11.5px;font-family:"IBM Plex Mono",monospace;padding:2px 8px;border-radius:20px;}
+.pill.good{background:var(--good-soft);color:var(--good);}
+.pill.bad{background:var(--bad-soft);color:var(--bad);}
+.table-wrap{overflow-x:auto;}
+
+footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--line);color:var(--ink-soft);font-size:13px;}
+a{color:var(--accent);}
+</style>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Codebase read · urbanflow-repo</div>
+  <h1>Will UrbanFlow run in a Codespace?</h1>
+  <p class="dek">A read of the actual repo at <code>BDA/urbanflow-repo</code> — what it is, what a run produces, and what it needs to host publicly on GitHub Codespaces. Not a proposal: this project already exists and already answers most of these questions in its own docs.</p>
+</header>
+
+<div class="verdicts">
+  <div class="verdict">
+    <div class="q">Codespaces</div>
+    <div class="a"><span class="dot good"></span>Yes</div>
+  </div>
+  <div class="verdict">
+    <div class="q">Public repo</div>
+    <div class="a"><span class="dot good"></span>Safe</div>
+  </div>
+  <div class="verdict">
+    <div class="q">Cluster (Hadoop/Cassandra)</div>
+    <div class="a"><span class="dot warn"></span>Not needed</div>
+  </div>
+</div>
+
+<section>
+  <h2>What this actually is</h2>
+  <p class="section-note prose">UrbanFlow is a single-laptop Spark pipeline over NYC taxi trip records — not a cluster system. It runs Spark in <em>local mode</em>: one JVM process standing in for both driver and executor. There is no HDFS, no YARN, no Cassandra, no cluster to provision, by design — the project brief in <code>CLAUDE.md</code> is written around "three people, six weeks, 8 GB laptops."</p>
+</section>
+
+<section>
+  <h2>The pipeline</h2>
+  <p class="section-note">Six stages, bronze to dashboard. Nothing here needs a network service beyond the initial TLC download — every arrow after ingest is a local file read.</p>
+  <figure class="diagram-frame">
+    <svg viewBox="0 0 860 210" role="img" aria-label="Pipeline: raw TLC files or synthetic data flow through ingest, curate, gold, model and benchmark stages producing JSON and parquet artifacts, which a separate Streamlit process reads via DuckDB to render the dashboard.">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-soft)"/>
+        </marker>
+      </defs>
+
+      <!-- stage boxes -->
+      <g>
+        <rect x="10" y="60" width="120" height="60" rx="8" class="plain-fill"/>
+        <text x="70" y="84" text-anchor="middle" class="title">Bronze</text>
+        <text x="70" y="102" text-anchor="middle" class="label muted">raw / synth</text>
+      </g>
+
+      <line x1="130" y1="90" x2="168" y2="90" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <g>
+        <rect x="170" y="60" width="120" height="60" rx="8" class="plain-fill"/>
+        <text x="230" y="84" text-anchor="middle" class="title">Silver</text>
+        <text x="230" y="102" text-anchor="middle" class="label muted">curate/clean.py</text>
+      </g>
+
+      <line x1="290" y1="90" x2="328" y2="90" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <g>
+        <rect x="330" y="60" width="120" height="60" rx="8" class="accent-fill"/>
+        <text x="390" y="84" text-anchor="middle" class="title">Gold</text>
+        <text x="390" y="102" text-anchor="middle" class="label muted">6 answer tables</text>
+      </g>
+
+      <!-- fan out to model + bench -->
+      <line x1="450" y1="80" x2="488" y2="55" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="450" y1="100" x2="488" y2="125" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <g>
+        <rect x="490" y="20" width="130" height="50" rx="8" class="plain-fill"/>
+        <text x="555" y="41" text-anchor="middle" class="title">Model</text>
+        <text x="555" y="58" text-anchor="middle" class="label muted">duration vs baseline</text>
+      </g>
+
+      <g>
+        <rect x="490" y="105" width="130" height="50" rx="8" class="plain-fill"/>
+        <text x="555" y="126" text-anchor="middle" class="title">Benchmark</text>
+        <text x="555" y="143" text-anchor="middle" class="label muted">format/join/cores</text>
+      </g>
+
+      <line x1="620" y1="45" x2="658" y2="80" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+      <line x1="620" y1="130" x2="658" y2="95" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <g>
+        <rect x="660" y="60" width="190" height="60" rx="8" class="accent-fill"/>
+        <text x="755" y="84" text-anchor="middle" class="title">Dashboard</text>
+        <text x="755" y="102" text-anchor="middle" class="label muted">Streamlit + DuckDB</text>
+      </g>
+
+      <text x="70" y="150" text-anchor="middle" class="label muted">no Spark</text>
+      <text x="755" y="150" text-anchor="middle" class="label muted">no Spark ↑</text>
+
+      <text x="430" y="185" text-anchor="middle" class="label muted">Spark local mode — single JVM, no cluster manager</text>
+    </svg>
+  </figure>
+  <figcaption>Bronze and silver run inside Spark; gold splits into model metrics and benchmark results; the dashboard is a <strong>separate process</strong> that never touches Spark — it reads only the JSON/parquet the pipeline already wrote to <code>data/gold/</code>. That separation is called out in the repo's own rules as deliberate, not incidental.</figcaption>
+</section>
+
+<section>
+  <h2>Input in, outcome out</h2>
+  <p class="section-note">What a user actually provides, and what comes back.</p>
+  <div class="cols">
+    <div class="card">
+      <h3>User input</h3>
+      <ul>
+        <li>A tier choice — <code>make synth</code> (no download) or <code>make ingest TIER=0|1|2</code> for 1/24/12 months of real TLC files</li>
+        <li>Nothing else. No forms, no uploads — the whole run is driven by <code>make</code> targets</li>
+        <li>Interactive filtering happens later, <em>inside</em> the dashboard: borough, hour, weekday/weekend, card vs cash</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Outcome produced</h3>
+      <ul>
+        <li><code>quality_report.json</code> — rows dropped, per cleaning rule</li>
+        <li><code>data/gold/*</code> — six tables: speed-by-hour, demand curves, airport trips, tip bias, and more</li>
+        <li><code>model_results.json</code> — trip-duration model vs a naive baseline</li>
+        <li><code>benchmarks.json</code> — Parquet vs CSV, broadcast vs sort-merge join, core scaling</li>
+        <li>A live dashboard at <code>localhost:8501</code> rendering all of the above</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What the dashboard outcome looks like</h2>
+  <p class="section-note">Reconstructed from <code>dashboard/app.py</code> and the gold-table contract in <code>schema/curated.md</code> — four tabs, DuckDB-backed, no Spark in this process.</p>
+  <div class="dash-mock">
+    <div class="dash-tabs">
+      <div class="dash-tab active">Demand</div>
+      <div class="dash-tab">Speed &amp; congestion</div>
+      <div class="dash-tab">Fares &amp; tips</div>
+      <div class="dash-tab">Benchmarks</div>
+    </div>
+    <div class="dash-body">
+      <div class="chart-box">
+        <div class="cap">Average speed by hour, by borough</div>
+        <svg viewBox="0 0 380 120" role="img" aria-label="Line chart shape showing speed dropping during morning and evening rush hour, recovering overnight">
+          <polyline points="0,60 40,40 80,30 120,55 160,90 200,95 240,80 280,50 320,35 360,45" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+          <line x1="0" y1="110" x2="380" y2="110" stroke="var(--line)"/>
+          <text x="0" y="10" class="label muted">mph</text>
+          <text x="330" y="120" class="label muted">23:00</text>
+        </svg>
+      </div>
+      <div>
+        <div class="stat-row">
+          <div class="stat"><div class="k">Rows curated</div><div class="v">3.4M</div></div>
+          <div class="stat"><div class="k">Rows dropped</div><div class="v">4.1%</div></div>
+          <div class="stat"><div class="k">Avg tip (card)</div><div class="v">18.2%</div></div>
+          <div class="stat"><div class="k">Parquet vs CSV</div><div class="v">5.4×</div></div>
+        </div>
+        <div class="caveat">Tip % is computed on card payments only — cash tips are never recorded in the source data.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Platform: what it needs, what it doesn't</h2>
+  <p class="section-note">No Cassandra, no Hadoop/HDFS, no YARN. The repo is explicit that the entire point is fitting real distributed-processing concepts onto one machine.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Component</th><th>Needed?</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Apache Spark (local mode)</td><td><span class="pill good">Yes</span></td><td>Already the engine — <code>session.py</code> starts one JVM, no cluster manager attached</td></tr>
+        <tr><td>Java 17 / 21 / 25</td><td><span class="pill good">Yes</span></td><td>Spark 4.2 refuses to start on Java 8 or 11 — check first with <code>java -version</code></td></tr>
+        <tr><td>DuckDB + Streamlit</td><td><span class="pill good">Yes</span></td><td>Serves the dashboard from gold-layer files only, no live Spark</td></tr>
+        <tr><td>Hadoop / HDFS / YARN</td><td><span class="pill bad">No</span></td><td>Bronze is just local files under <code>data/raw/</code>; nothing here is cluster-distributed</td></tr>
+        <tr><td>Cassandra / any database server</td><td><span class="pill bad">No</span></td><td>Every layer (bronze/silver/gold) is Parquet/JSON on disk, read by DuckDB — no server process to run</td></tr>
+        <tr><td>GPU</td><td><span class="pill bad">No</span></td><td>Duration model is a baseline comparison, not deep learning</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Codespaces, specifically</h2>
+  <div class="cols">
+    <div class="card">
+      <h3>Will work</h3>
+      <ul>
+        <li>Only real requirements are Java 17+ and Python 3.10+ — both installable in any Codespace with <code>apt</code>/<code>pyenv</code>, no container orchestration needed</li>
+        <li><code>make setup</code> → <code>make check</code> → <code>make synth</code> → <code>make dash</code> needs no network beyond package installs — the default 4-core/16GB machine type covers Tier 0/1 comfortably</li>
+        <li>Streamlit's port forwards automatically in Codespaces, so <code>localhost:8501</code> becomes a shareable preview URL</li>
+        <li>Public repo is safe as-is: <code>data/</code>, <code>*.parquet</code>, <code>*.csv</code> are already gitignored, so no multi-GB taxi data or generated artifacts ever get committed</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Worth adding first</h3>
+      <ul>
+        <li>No <code>.devcontainer/</code> exists yet — without it, whoever opens the Codespace has to run <code>scripts/doctor.sh</code>/<code>make check</code> manually each time to confirm Java before anything else</li>
+        <li>Tier 2 (230M rows, 5.8 GB) is the one run worth doing on a beefier machine type — the brief itself says run it once, in week 4, not routinely</li>
+        <li><code>make ingest</code> pulls from TLC's public S3 bucket — fine on Codespaces' network, just budget the download minutes</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<footer>Read directly from <code>README.md</code>, <code>CLAUDE.md</code>, <code>docs/OUTCOMES.md</code>, <code>schema/curated.md</code> in the repo — no assumptions beyond what those files state.</footer>
+
+</div>

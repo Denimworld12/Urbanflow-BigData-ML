@@ -1,0 +1,14 @@
+# NEVER commit the data. It is gigabytes and it is reproducible from the manifest.
+data/
+*.parquet
+*.csv
+!schema/*.csv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+spark-warehouse/
+metastore_db/
+derby.log
+report/*.pdf

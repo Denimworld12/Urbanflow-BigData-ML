@@ -1,0 +1,8 @@
+# Pinned so all three machines behave identically.
+pyspark==4.2.0
+pyarrow>=17.0.0
+duckdb>=1.1.0
+pandas>=2.2.0
+streamlit>=1.38.0
+plotly>=5.24.0
+pytest>=8.0.0

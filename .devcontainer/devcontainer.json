@@ -1,0 +1,22 @@
+{
+  "name": "UrbanFlow (Spark local mode)",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bullseye",
+  "features": {
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "21"
+    }
+  },
+  "forwardPorts": [8501],
+  "portsAttributes": {
+    "8501": { "label": "UrbanFlow dashboard", "onAutoForward": "openPreview" }
+  },
+  "postCreateCommand": "make setup && make check",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python"]
+    }
+  },
+  "hostRequirements": {
+    "memory": "8gb"
+  }
+}
