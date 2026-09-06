@@ -43,7 +43,22 @@ def read_zones(spark: SparkSession) -> DataFrame:
 def normalise(df: DataFrame, dataset: str) -> DataFrame:
     pu, do = config.TS_COLS[dataset]
     out = df.withColumnRenamed(pu, "pickup_ts").withColumnRenamed(do, "dropoff_ts")
-    # fhvhv/fhv have no fare columns — fill so one schema serves every dataset
+
+    if dataset == "fhvhv":
+        # High-volume for-hire (Uber/Lyft): distance and money live under
+        # different names entirely, not just missing — mapping them is not
+        # optional, every cleaning rule (distance/fare/speed) needs a real
+        # value or every single row gets filtered out.
+        out = out.withColumnRenamed("trip_miles", "trip_distance")
+        surcharges = sum(F.coalesce(F.col(c), F.lit(0.0)) for c in
+                          ("tolls", "bcf", "sales_tax", "congestion_surcharge", "airport_fee"))
+        out = (out
+               .withColumn("fare_amount", F.coalesce(F.col("base_passenger_fare"), F.lit(0.0)) + surcharges)
+               .withColumnRenamed("tips", "tip_amount")
+               .withColumn("total_amount", F.col("fare_amount") + F.coalesce(F.col("tip_amount"), F.lit(0.0))))
+
+    # fhvhv/fhv genuinely have no passenger_count or card/cash payment_type —
+    # fill those two so one schema serves every dataset.
     for c, t in (("trip_distance", "double"), ("fare_amount", "double"), ("tip_amount", "double"),
                  ("total_amount", "double"), ("passenger_count", "double"), ("payment_type", "int")):
         if c not in out.columns:

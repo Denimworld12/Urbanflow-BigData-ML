@@ -1,0 +1,257 @@
+<title>Duration Model, Explained</title>
+<style>
+:root{
+  --paper:#F7F5F0; --paper-raised:#FFFFFF; --ink:#211D16; --ink-soft:#6B6455;
+  --line:#DDD6C6; --accent:#B97A1E; --accent-soft:#F1E2C2; --accent-ink:#5A3E10;
+  --good:#3F7A4D; --good-soft:#E3EEE1; --warn:#B5651D; --warn-soft:#F3E6D6;
+  --bad:#A23B3B; --bad-soft:#F5E2E0; --mono-bg:#EDE8DB;
+}
+:root:not([data-theme="light"]){
+  @media (prefers-color-scheme: dark){
+    --paper:#1B1812; --paper-raised:#232019; --ink:#EFE9DB; --ink-soft:#A79E8B;
+    --line:#3A352A; --accent:#E0A34A; --accent-soft:#3A2E17; --accent-ink:#F3D9A8;
+    --good:#7FBF8C; --good-soft:#22321F; --warn:#E0A34A; --warn-soft:#3A2E17;
+    --bad:#E08585; --bad-soft:#3A2020; --mono-bg:#242017;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#1B1812; --paper-raised:#232019; --ink:#EFE9DB; --ink-soft:#A79E8B;
+  --line:#3A352A; --accent:#E0A34A; --accent-soft:#3A2E17; --accent-ink:#F3D9A8;
+  --good:#7FBF8C; --good-soft:#22321F; --warn:#E0A34A; --warn-soft:#3A2E17;
+  --bad:#E08585; --bad-soft:#3A2020; --mono-bg:#242017;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",-apple-system,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased;}
+::selection{background:var(--accent-soft);color:var(--accent-ink);}
+.wrap{max-width:940px;margin:0 auto;padding:48px 24px 96px;}
+h1,h2,h3{font-family:"Fraunces",Georgia,serif;text-wrap:balance;margin:0;}
+code{font-family:"IBM Plex Mono",monospace;background:var(--mono-bg);padding:1px 6px;border-radius:4px;font-size:0.88em;}
+p{margin:0 0 14px;}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent);margin-bottom:10px;}
+h1{font-size:clamp(28px,4.5vw,40px);font-weight:600;}
+.dek{font-size:16.5px;color:var(--ink-soft);max-width:66ch;margin-top:12px;}
+section{margin:52px 0;}
+section > h2{font-size:23px;font-weight:600;margin-bottom:6px;}
+.section-note{color:var(--ink-soft);font-size:14.5px;max-width:68ch;margin-bottom:20px;}
+figure{margin:0;}
+figcaption{font-size:13px;color:var(--ink-soft);margin-top:12px;max-width:72ch;}
+.diagram-frame{background:var(--paper-raised);border:1px solid var(--line);border-radius:12px;padding:22px 10px;overflow-x:auto;}
+svg .title{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:13px;fill:currentColor;}
+svg .label{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:currentColor;}
+svg .muted{fill:var(--ink-soft);}
+svg .arrow{stroke:var(--ink-soft);}
+svg .box{fill:var(--paper-raised);stroke:var(--line);}
+svg .box-accent{fill:var(--accent-soft);stroke:var(--accent);}
+svg .box-good{fill:var(--good-soft);stroke:var(--good);}
+svg .box-bad{fill:var(--bad-soft);stroke:var(--bad);}
+
+/* correction table */
+.fix-table{width:100%;border-collapse:collapse;font-size:14px;}
+.fix-table th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-soft);font-weight:500;padding:8px 12px;border-bottom:1px solid var(--line);}
+.fix-table td{padding:12px;border-bottom:1px solid var(--line);vertical-align:top;}
+.fix-table tr:last-child td{border-bottom:none;}
+.pill{display:inline-block;font-size:11px;font-family:"IBM Plex Mono",monospace;padding:2px 8px;border-radius:20px;white-space:nowrap;}
+.pill.no{background:var(--bad-soft);color:var(--bad);}
+.pill.yes{background:var(--good-soft);color:var(--good);}
+.table-wrap{overflow-x:auto;}
+
+/* two-col compare */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;}
+@media (max-width:720px){.cols{grid-template-columns:1fr;}}
+.card{background:var(--paper-raised);border:1px solid var(--line);border-radius:10px;padding:18px 20px;}
+.card h3{font-size:16px;margin-bottom:8px;}
+.card.no-fit{border-color:var(--bad);}
+.card.yes-fit{border-color:var(--good);}
+
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:var(--ink-soft);font-size:13px;}
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Stage S4 &middot; analyze/model.py</div>
+  <h1>Duration Model, Explained</h1>
+  <p class="dek">What actually flows into the model, what algorithm it runs, and how it gets graded — with the terms corrected along the way.</p>
+</header>
+
+<section>
+  <h2>First, the terms that don't apply here</h2>
+  <p class="section-note">Three names came up that belong to a different kind of model. Worth being precise about, since they'd point you at the wrong mental model entirely.</p>
+  <div class="table-wrap">
+    <table class="fix-table">
+      <thead><tr><th>Term</th><th>Used here?</th><th>What it actually is</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Grad-CAM</strong></td><td><span class="pill no">No</span></td><td>Highlights which <em>pixels</em> a CNN looked at, for image classifiers. There are no images and no neural network anywhere in this pipeline.</td></tr>
+        <tr><td><strong>Sigmoid / logistic regression</strong></td><td><span class="pill no">No</span></td><td>Squashes an output into a 0–1 probability, for yes/no classification. We're predicting a continuous number (minutes), not a category — nothing here gets squashed to a probability.</td></tr>
+        <tr><td><strong>Stacking</strong></td><td><span class="pill no">No</span></td><td>Trains several <em>different</em> model types, then a meta-model learns how to blend their outputs. Diagrammed below, for contrast.</td></tr>
+        <tr><td><strong>Gradient boosting</strong></td><td><span class="pill yes">Yes</span></td><td>One model type (decision trees), trained one at a time, each new tree correcting the previous ensemble's mistakes. This is what <code>GBTRegressor</code> actually does.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>The data flow, input to output</h2>
+  <p class="section-note">From a raw curated row to a predicted number of minutes.</p>
+  <figure class="diagram-frame">
+    <svg viewBox="0 0 940 260" role="img" aria-label="Flow: curated silver-layer columns are selected as features, categorical boroughs are indexed and one-hot encoded, all features are assembled into one vector, fed into a GBTRegressor, producing a predicted duration in minutes.">
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-soft)"/>
+        </marker>
+      </defs>
+
+      <g>
+        <rect x="10" y="90" width="140" height="80" rx="8" class="box"/>
+        <text x="80" y="112" text-anchor="middle" class="title">Curated row</text>
+        <text x="80" y="132" text-anchor="middle" class="label muted">trip_distance</text>
+        <text x="80" y="146" text-anchor="middle" class="label muted">pickup_hour/dow</text>
+        <text x="80" y="160" text-anchor="middle" class="label muted">pu/do_borough</text>
+      </g>
+      <line x1="150" y1="130" x2="188" y2="130" class="arrow" stroke-width="1.5" marker-end="url(#a1)"/>
+
+      <g>
+        <rect x="190" y="30" width="150" height="60" rx="8" class="box"/>
+        <text x="265" y="55" text-anchor="middle" class="title">StringIndexer</text>
+        <text x="265" y="73" text-anchor="middle" class="label muted">borough → integer id</text>
+      </g>
+      <line x1="340" y1="60" x2="378" y2="100" class="arrow" stroke-width="1.5" marker-end="url(#a1)"/>
+
+      <g>
+        <rect x="190" y="150" width="150" height="60" rx="8" class="box"/>
+        <text x="265" y="175" text-anchor="middle" class="title">numeric passthrough</text>
+        <text x="265" y="193" text-anchor="middle" class="label muted">distance, hour, dow…</text>
+      </g>
+      <line x1="340" y1="180" x2="378" y2="140" class="arrow" stroke-width="1.5" marker-end="url(#a1)"/>
+
+      <g>
+        <rect x="380" y="30" width="150" height="60" rx="8" class="box"/>
+        <text x="455" y="55" text-anchor="middle" class="title">OneHotEncoder</text>
+        <text x="455" y="73" text-anchor="middle" class="label muted">id → sparse vector</text>
+      </g>
+      <line x1="530" y1="60" x2="568" y2="115" class="arrow" stroke-width="1.5" marker-end="url(#a1)"/>
+      <line x1="340" y1="180" x2="568" y2="135" class="arrow" stroke-width="1.5" marker-end="url(#a1)"/>
+
+      <g>
+        <rect x="570" y="90" width="150" height="80" rx="8" class="box-accent"/>
+        <text x="645" y="118" text-anchor="middle" class="title">VectorAssembler</text>
+        <text x="645" y="138" text-anchor="middle" class="label" fill="var(--accent-ink)">one feature vector</text>
+        <text x="645" y="154" text-anchor="middle" class="label muted">= "features"</text>
+      </g>
+      <line x1="720" y1="130" x2="758" y2="130" class="arrow" stroke-width="1.5" marker-end="url(#a1)"/>
+
+      <g>
+        <rect x="760" y="90" width="170" height="80" rx="8" class="box-good"/>
+        <text x="845" y="118" text-anchor="middle" class="title">GBTRegressor</text>
+        <text x="845" y="138" text-anchor="middle" class="label" fill="var(--good)">predicted</text>
+        <text x="845" y="154" text-anchor="middle" class="label" fill="var(--good)">duration_min</text>
+      </g>
+
+      <text x="470" y="240" text-anchor="middle" class="label muted">source: schema/curated.md — the silver-layer contract every dataset shares</text>
+    </svg>
+  </figure>
+  <figcaption>Categorical columns (boroughs) go through indexing + one-hot encoding; numeric columns pass straight through. Everything gets concatenated into a single "features" vector — the only input format Spark ML's trees accept.</figcaption>
+</section>
+
+<section>
+  <h2>Boosting, not stacking — what's actually inside GBTRegressor</h2>
+  <p class="section-note">These are genuinely different techniques, not two names for the same thing. Drawing the real difference:</p>
+  <div class="cols">
+    <div class="card yes-fit">
+      <h3>✓ Boosting — what we're using</h3>
+      <svg viewBox="0 0 280 200" role="img" aria-label="Boosting: tree 1 predicts, its errors become the target for tree 2, whose errors become the target for tree 3, and so on — a running sum of corrections.">
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--good)"/>
+          </marker>
+        </defs>
+        <rect x="10" y="15" width="70" height="36" rx="6" class="box-good"/><text x="45" y="37" text-anchor="middle" class="label">tree 1</text>
+        <line x1="45" y1="51" x2="45" y2="79" stroke="var(--good)" stroke-width="1.5" marker-end="url(#a2)"/>
+        <text x="120" y="68" class="label muted">error →</text>
+        <rect x="10" y="83" width="70" height="36" rx="6" class="box-good"/><text x="45" y="105" text-anchor="middle" class="label">tree 2</text>
+        <line x1="45" y1="119" x2="45" y2="147" stroke="var(--good)" stroke-width="1.5" marker-end="url(#a2)"/>
+        <text x="120" y="136" class="label muted">error →</text>
+        <rect x="10" y="151" width="70" height="36" rx="6" class="box-good"/><text x="45" y="173" text-anchor="middle" class="label">tree 30</text>
+        <text x="200" y="105" text-anchor="middle" class="label muted">sequential,</text>
+        <text x="200" y="122" text-anchor="middle" class="label muted">same model type,</text>
+        <text x="200" y="139" text-anchor="middle" class="label muted">summed correction</text>
+      </svg>
+      <p style="margin-top:10px;font-size:13.5px;">One decision tree at a time. Each new tree's only job is to predict what the previous trees got <em>wrong</em>. The final prediction is the sum of all 30 trees' corrections.</p>
+    </div>
+    <div class="card no-fit">
+      <h3>✗ Stacking — not used here</h3>
+      <svg viewBox="0 0 280 200" role="img" aria-label="Stacking: several different model types run independently on the same input, and a separate meta-model learns to combine their outputs.">
+        <defs>
+          <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--bad)"/>
+          </marker>
+        </defs>
+        <rect x="10" y="15" width="70" height="30" rx="6" class="box-bad"/><text x="45" y="35" text-anchor="middle" class="label">tree model</text>
+        <rect x="10" y="55" width="70" height="30" rx="6" class="box-bad"/><text x="45" y="75" text-anchor="middle" class="label">linear model</text>
+        <rect x="10" y="95" width="70" height="30" rx="6" class="box-bad"/><text x="45" y="115" text-anchor="middle" class="label">neural net</text>
+        <line x1="80" y1="30" x2="118" y2="130" stroke="var(--bad)" stroke-width="1.2" marker-end="url(#a3)"/>
+        <line x1="80" y1="70" x2="118" y2="140" stroke="var(--bad)" stroke-width="1.2" marker-end="url(#a3)"/>
+        <line x1="80" y1="110" x2="118" y2="150" stroke="var(--bad)" stroke-width="1.2" marker-end="url(#a3)"/>
+        <rect x="120" y="130" width="90" height="40" rx="6" class="box-bad"/><text x="165" y="154" text-anchor="middle" class="label">meta-model</text>
+      </svg>
+      <p style="margin-top:10px;font-size:13.5px;">Several <em>different</em> model families trained independently and in parallel, then a separate model learns how to weigh their outputs. Nothing in this project does this.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Grading it — the testing/evaluation flow</h2>
+  <p class="section-note">A model score alone means nothing without something honest to compare it against — that's the whole reason the baseline exists.</p>
+  <figure class="diagram-frame">
+    <svg viewBox="0 0 900 220" role="img" aria-label="All curated rows are split by time: earliest 80 percent become training data, most recent 20 percent become test data. Both the naive baseline and the trained GBT model are scored against the same held-out test set, using RMSE, MAE and R-squared.">
+      <defs>
+        <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-soft)"/>
+        </marker>
+      </defs>
+      <rect x="10" y="20" width="880" height="34" rx="6" class="box"/>
+      <text x="450" y="42" text-anchor="middle" class="label muted">all curated rows, ordered by pickup_ts</text>
+
+      <rect x="10" y="70" width="660" height="34" rx="6" class="box-good"/>
+      <text x="340" y="92" text-anchor="middle" class="label" fill="var(--good)">train — earliest 80% by time</text>
+      <rect x="678" y="70" width="212" height="34" rx="6" class="box-accent"/>
+      <text x="784" y="92" text-anchor="middle" class="label" fill="var(--accent-ink)">test — most recent 20%</text>
+
+      <line x1="784" y1="104" x2="500" y2="140" class="arrow" stroke-width="1.3" marker-end="url(#a4)"/>
+      <line x1="784" y1="104" x2="670" y2="140" class="arrow" stroke-width="1.3" marker-end="url(#a4)"/>
+
+      <rect x="400" y="144" width="200" height="50" rx="8" class="box"/>
+      <text x="500" y="165" text-anchor="middle" class="title">naive baseline</text>
+      <text x="500" y="182" text-anchor="middle" class="label muted">distance ÷ mean speed</text>
+
+      <rect x="620" y="144" width="200" height="50" rx="8" class="box-good"/>
+      <text x="720" y="165" text-anchor="middle" class="title">GBT model</text>
+      <text x="720" y="182" text-anchor="middle" class="label muted">30 boosted trees</text>
+
+      <text x="150" y="165" text-anchor="middle" class="label muted">scored on the</text>
+      <text x="150" y="182" text-anchor="middle" class="label muted">same held-out test set:</text>
+      <text x="150" y="199" text-anchor="middle" class="label" fill="var(--accent-ink)">RMSE · MAE · R²</text>
+    </svg>
+  </figure>
+  <figcaption>Time-based split (not random) so the model is never trained on the future. Both baseline and model are graded on the exact same unseen trips — that's what makes "5% better than baseline" a real, defensible claim instead of a made-up number.</figcaption>
+</section>
+
+<section>
+  <h2>What the three metrics actually mean</h2>
+  <div class="table-wrap">
+    <table class="fix-table">
+      <thead><tr><th>Metric</th><th>In plain terms</th></tr></thead>
+      <tbody>
+        <tr><td><strong>RMSE</strong> (root mean squared error)</td><td>Typical prediction error in minutes — but big misses count extra (squared before averaging), so it punishes the model for being wildly wrong on a few trips more than MAE does.</td></tr>
+        <tr><td><strong>MAE</strong> (mean absolute error)</td><td>Average error in minutes, treating every miss equally. Easier to say out loud in the report: "off by X minutes on average."</td></tr>
+        <tr><td><strong>R²</strong></td><td>Fraction of the variation in trip duration the model explains — 1.0 would be perfect, 0.0 would be "no better than always guessing the average."</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="section-note" style="margin-top:16px;">Plus <strong>feature importance</strong> from the trained trees — which of <code>trip_distance</code>, <code>pickup_hour</code>, <code>pickup_dow</code>, <code>pu_borough</code>, <code>do_borough</code> the 30 trees actually relied on. That answers "what are the key factors" directly, once training finishes.</p>
+</section>
+
+<footer>This Tier 2 (fhvhv, 243.5M rows) run is still training as this page was written — real RMSE/MAE/R²/importance numbers land in <code>data/gold/model_results.json</code> once it completes, not before.</footer>
+
+</div>

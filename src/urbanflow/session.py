@@ -46,6 +46,12 @@ def get_spark(app: str = "UrbanFlow", cores: int | None = None,
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
         .config("spark.sql.files.maxPartitionBytes", str(128 * 1024 * 1024))
+        # Static (Spark's default) means a "overwrite" write to a partitioned
+        # path erases every partition, not just the ones in this write — silently
+        # destroying every other month already curated. curate_month() writes
+        # one month at a time into a partitionBy("year","month") tree, so this
+        # must be dynamic or only the last month processed ever survives.
+        .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
         .config("spark.local.dir", str(config.SPILL))
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.ui.showConsoleProgress", "false")

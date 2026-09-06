@@ -4,8 +4,11 @@ services:
     ports:
       - "8501:8501"
     environment:
-      INGEST: "1"     # 1 = download real TIER=0 data; 0 = synthetic only, no network
-      TIER: "0"
+      INGEST: "1"     # 1 = download real data for TIER; 0 = synthetic only, no network
+      TIER: "0"       # 0 = 1 month (~55MB), 1 = 24 months (~1.4GB), 2 = 12mo FHVHV (~5.8GB, 230M rows)
+      ADMIN_USER: "admin"
+      ADMIN_PASSWORD: "urbanflow"   # change this — see README
+      # URBANFLOW_DRIVER_MEM: "10g"  # only needed for TIER=2-scale runs
     volumes:
       - urbanflow-data:/app/data   # keeps downloaded/curated data across restarts
 

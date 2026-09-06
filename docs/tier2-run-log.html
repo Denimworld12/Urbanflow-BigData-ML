@@ -1,0 +1,253 @@
+<title>Tier 2 Run Log</title>
+<style>
+:root{
+  --paper:#F7F5F0;
+  --paper-raised:#FFFFFF;
+  --ink:#211D16;
+  --ink-soft:#6B6455;
+  --line:#DDD6C6;
+  --accent:#B97A1E;
+  --accent-soft:#F1E2C2;
+  --accent-ink:#5A3E10;
+  --good:#3F7A4D;
+  --good-soft:#E3EEE1;
+  --warn:#B5651D;
+  --warn-soft:#F3E6D6;
+  --bad:#A23B3B;
+  --bad-soft:#F5E2E0;
+  --mono-bg:#EDE8DB;
+}
+:root:not([data-theme="light"]){
+  @media (prefers-color-scheme: dark){
+    --paper:#1B1812; --paper-raised:#232019; --ink:#EFE9DB; --ink-soft:#A79E8B;
+    --line:#3A352A; --accent:#E0A34A; --accent-soft:#3A2E17; --accent-ink:#F3D9A8;
+    --good:#7FBF8C; --good-soft:#22321F; --warn:#E0A34A; --warn-soft:#3A2E17;
+    --bad:#E08585; --bad-soft:#3A2020; --mono-bg:#242017;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#1B1812; --paper-raised:#232019; --ink:#EFE9DB; --ink-soft:#A79E8B;
+  --line:#3A352A; --accent:#E0A34A; --accent-soft:#3A2E17; --accent-ink:#F3D9A8;
+  --good:#7FBF8C; --good-soft:#22321F; --warn:#E0A34A; --warn-soft:#3A2E17;
+  --bad:#E08585; --bad-soft:#3A2020; --mono-bg:#242017;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",-apple-system,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased;}
+::selection{background:var(--accent-soft);color:var(--accent-ink);}
+.wrap{max-width:920px;margin:0 auto;padding:48px 24px 96px;}
+h1,h2,h3{font-family:"Fraunces",Georgia,serif;text-wrap:balance;margin:0;}
+code{font-family:"IBM Plex Mono",monospace;background:var(--mono-bg);padding:1px 6px;border-radius:4px;font-size:0.88em;}
+p{margin:0 0 14px;}
+
+/* live status banner */
+.live{
+  display:flex;align-items:center;gap:14px;
+  background:var(--paper-raised);border:1px solid var(--line);border-radius:12px;
+  padding:18px 22px;margin-bottom:36px;
+}
+.pulse{width:12px;height:12px;border-radius:50%;background:var(--accent);flex:none;position:relative;}
+.pulse::after{content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid var(--accent);animation:pulse 1.8s ease-out infinite;}
+@media (prefers-reduced-motion: reduce){.pulse::after{animation:none;}}
+@keyframes pulse{0%{transform:scale(0.6);opacity:0.9;}100%{transform:scale(1.6);opacity:0;}}
+.live .label{font-family:"IBM Plex Mono",monospace;font-size:11.5px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-soft);}
+.live .val{font-family:"Fraunces",serif;font-size:19px;font-weight:600;margin-top:2px;}
+
+header.hero{margin-bottom:8px;}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent);margin-bottom:10px;}
+h1{font-size:clamp(28px,4.5vw,40px);font-weight:600;}
+.dek{font-size:16.5px;color:var(--ink-soft);max-width:64ch;margin-top:12px;}
+
+section{margin:48px 0;}
+section > h2{font-size:23px;font-weight:600;margin-bottom:6px;}
+.section-note{color:var(--ink-soft);font-size:14.5px;max-width:66ch;margin-bottom:22px;}
+
+/* pipeline diagram */
+figure{margin:0;}
+figcaption{font-size:13px;color:var(--ink-soft);margin-top:12px;max-width:70ch;}
+.diagram-frame{background:var(--paper-raised);border:1px solid var(--line);border-radius:12px;padding:22px 8px;overflow-x:auto;}
+svg .title{font-family:"IBM Plex Sans",sans-serif;font-weight:600;font-size:13px;fill:currentColor;}
+svg .label{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:currentColor;}
+svg .muted{fill:var(--ink-soft);}
+svg .arrow{stroke:var(--ink-soft);}
+svg .done-fill{fill:var(--good-soft);stroke:var(--good);}
+svg .run-fill{fill:var(--accent-soft);stroke:var(--accent);}
+svg .wait-fill{fill:var(--paper-raised);stroke:var(--line);}
+
+/* bug cards */
+.bug{background:var(--paper-raised);border:1px solid var(--line);border-radius:12px;padding:22px 24px;margin-bottom:20px;}
+.bug .tag{display:inline-flex;align-items:center;gap:6px;font-family:"IBM Plex Mono",monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;background:var(--bad-soft);color:var(--bad);padding:3px 9px;border-radius:20px;margin-bottom:10px;}
+.bug .tag.fixed{background:var(--good-soft);color:var(--good);}
+.bug h3{font-size:17px;margin-bottom:8px;}
+.bug .why{font-size:14px;color:var(--ink-soft);margin-top:10px;}
+
+/* timeline */
+.timeline{border-left:2px solid var(--line);padding-left:20px;display:flex;flex-direction:column;gap:18px;}
+.tl-item{position:relative;}
+.tl-item::before{content:"";position:absolute;left:-25px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--good);}
+.tl-item.bad::before{background:var(--bad);}
+.tl-item.now::before{background:var(--accent);}
+.tl-item .t{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-soft);}
+.tl-item .d{font-size:14.5px;margin-top:2px;}
+
+/* stat row */
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;}
+.stat{background:var(--paper-raised);padding:16px 18px;}
+.stat .k{font-size:11px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.04em;}
+.stat .v{font-family:"IBM Plex Mono",monospace;font-size:20px;margin-top:5px;font-variant-numeric:tabular-nums;}
+
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:var(--ink-soft);font-size:13px;}
+</style>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Live run &middot; started 09:26 UTC</div>
+  <h1>Tier 2, in progress</h1>
+  <p class="dek">The 230M-row FHVHV run — what's finished, what broke, what got fixed, and what's still computing right now.</p>
+</header>
+
+<div class="live">
+  <div class="pulse" aria-hidden="true"></div>
+  <div>
+    <div class="label">Current stage</div>
+    <div class="val">Model training (GBTRegressor) on 243.5M curated rows — no dashboard yet</div>
+  </div>
+</div>
+
+<section>
+  <h2>The pipeline, stage by stage</h2>
+  <p class="section-note">Six stages. Two of them broke on first contact with FHVHV-shaped data and needed a real fix, not a retry.</p>
+  <figure class="diagram-frame">
+    <svg viewBox="0 0 900 260" role="img" aria-label="Pipeline status: ingest done, curate done after a bug fix, gold done, model currently running after a second bug fix, bench and dashboard still waiting.">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-soft)"/>
+        </marker>
+      </defs>
+
+      <g>
+        <rect x="10" y="70" width="128" height="64" rx="8" class="done-fill"/>
+        <text x="74" y="96" text-anchor="middle" class="title">Ingest</text>
+        <text x="74" y="114" text-anchor="middle" class="label muted">5.8GB, 12mo ✓</text>
+      </g>
+      <line x1="138" y1="102" x2="176" y2="102" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <g>
+        <rect x="178" y="70" width="128" height="64" rx="8" class="done-fill"/>
+        <text x="242" y="92" text-anchor="middle" class="title">Curate</text>
+        <text x="242" y="110" text-anchor="middle" class="label muted">243.5M rows ✓</text>
+        <text x="242" y="124" text-anchor="middle" class="label" fill="var(--bad)">bug #1, fixed</text>
+      </g>
+      <line x1="306" y1="102" x2="344" y2="102" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <g>
+        <rect x="346" y="70" width="128" height="64" rx="8" class="done-fill"/>
+        <text x="410" y="96" text-anchor="middle" class="title">Gold</text>
+        <text x="410" y="114" text-anchor="middle" class="label muted">6 tables ✓</text>
+      </g>
+      <line x1="474" y1="102" x2="512" y2="102" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <g>
+        <rect x="514" y="70" width="128" height="64" rx="8" class="run-fill"/>
+        <text x="578" y="92" text-anchor="middle" class="title">Model</text>
+        <text x="578" y="110" text-anchor="middle" class="label" fill="var(--accent-ink)">running now</text>
+        <text x="578" y="124" text-anchor="middle" class="label" fill="var(--bad)">bug #2, fixed</text>
+      </g>
+      <line x1="642" y1="102" x2="680" y2="102" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <g>
+        <rect x="682" y="70" width="100" height="64" rx="8" class="wait-fill"/>
+        <text x="732" y="96" text-anchor="middle" class="title muted">Bench</text>
+        <text x="732" y="114" text-anchor="middle" class="label muted">waiting</text>
+      </g>
+      <line x1="782" y1="102" x2="820" y2="102" class="arrow" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+      <g>
+        <rect x="822" y="70" width="68" height="64" rx="8" class="wait-fill"/>
+        <text x="856" y="96" text-anchor="middle" class="title muted">Dash</text>
+        <text x="856" y="114" text-anchor="middle" class="label muted">waiting</text>
+      </g>
+
+      <text x="450" y="180" text-anchor="middle" class="label muted">local Spark, driver.memory=10g, 12 cores</text>
+      <text x="450" y="200" text-anchor="middle" class="label" fill="var(--good)">● done</text>
+      <text x="530" y="200" text-anchor="middle" class="label" fill="var(--accent-ink)">● running</text>
+      <text x="610" y="200" text-anchor="middle" class="label muted">● waiting</text>
+    </svg>
+  </figure>
+  <figcaption>Ingest, curate and gold already completed on the full dataset. Model is training now. Bench and the dashboard haven't started — they're next in the same container.</figcaption>
+</section>
+
+<section>
+  <h2>The stat that proves curate actually worked this time</h2>
+  <div class="stat-row">
+    <div class="stat"><div class="k">Months downloaded</div><div class="v">12 / 12</div></div>
+    <div class="stat"><div class="k">Raw rows in</div><div class="v">243.66M</div></div>
+    <div class="stat"><div class="k">Curated rows out</div><div class="v">243.51M</div></div>
+    <div class="stat"><div class="k">Row loss</div><div class="v">~0.03%</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>What actually broke</h2>
+  <p class="section-note">Both were real bugs in the project's own reference code — not caused by Docker, memory, or bad luck. Both are fixed and verified before letting the run continue.</p>
+
+  <div class="bug">
+    <span class="tag fixed">Fixed &middot; session.py</span>
+    <h3>Bug #1 — every month except the last one was silently erased</h3>
+    <p>Spark's default write mode overwrites the <em>entire</em> output folder, not just the partition being written. <code>curate_month()</code> writes one month at a time into a <code>year=/month=</code> folder tree with <code>mode("overwrite")</code> — so month 2's write deleted month 1, month 3 deleted month 2, and so on. Only December survived. This silently breaks <strong>any</strong> multi-month tier, including Tier 1's 24 months, not just Tier 2.</p>
+    <figure class="diagram-frame">
+      <svg viewBox="0 0 820 150" role="img" aria-label="Before: static overwrite mode erases the whole folder on every monthly write, leaving only the last month. After: dynamic overwrite mode replaces only the partition being written, so all twelve months survive.">
+        <defs>
+          <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-soft)"/>
+          </marker>
+        </defs>
+        <text x="10" y="20" class="label muted">before — partitionOverwriteMode=static</text>
+        <g>
+          <rect x="10" y="34" width="46" height="30" rx="4" class="wait-fill"/><text x="33" y="53" text-anchor="middle" class="label muted">m1</text>
+          <rect x="66" y="34" width="46" height="30" rx="4" class="wait-fill"/><text x="89" y="53" text-anchor="middle" class="label muted">m2</text>
+          <rect x="122" y="34" width="46" height="30" rx="4" class="wait-fill"/><text x="145" y="53" text-anchor="middle" class="label muted">…</text>
+          <rect x="178" y="34" width="46" height="30" rx="4" class="done-fill"/><text x="201" y="53" text-anchor="middle" class="label">m12</text>
+        </g>
+        <text x="234" y="53" class="label muted">← only this survives each time m2, m3… overwrites the whole folder</text>
+
+        <text x="10" y="100" class="label muted">after — partitionOverwriteMode=dynamic</text>
+        <g>
+          <rect x="10" y="114" width="46" height="30" rx="4" class="done-fill"/><text x="33" y="133" text-anchor="middle" class="label">m1</text>
+          <rect x="66" y="114" width="46" height="30" rx="4" class="done-fill"/><text x="89" y="133" text-anchor="middle" class="label">m2</text>
+          <rect x="122" y="114" width="46" height="30" rx="4" class="done-fill"/><text x="145" y="133" text-anchor="middle" class="label">…</text>
+          <rect x="178" y="114" width="46" height="30" rx="4" class="done-fill"/><text x="201" y="133" text-anchor="middle" class="label">m12</text>
+        </g>
+        <text x="234" y="133" class="label muted">← each write only replaces its own month, the rest stay</text>
+      </svg>
+    </figure>
+    <p class="why">Fixed by setting <code>spark.sql.sources.partitionOverwriteMode = dynamic</code> once, in <code>session.py</code> — the single place every Spark session in this project is created.</p>
+  </div>
+
+  <div class="bug">
+    <span class="tag fixed">Fixed &middot; analyze/model.py</span>
+    <h3>Bug #2 — the model saw zero training rows</h3>
+    <p>FHVHV (Uber/Lyft) trips have no <code>passenger_count</code> field at all — it's genuinely absent, not just sometimes missing, so every row has it as <code>null</code>. <code>model.py</code> hard-coded <code>passenger_count</code> as a training feature and then called <code>.dropna()</code>, which discards a row if <em>any</em> selected column is null. Every single row qualified, so training and test sets both came out empty.</p>
+    <p class="why">Fixed by dropping <code>passenger_count</code> from the feature list specifically for <code>fhvhv</code>/<code>fhv</code>, instead of inventing a fake value for a field that honestly doesn't exist in the source data.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Timeline</h2>
+  <div class="timeline">
+    <div class="tl-item"><div class="t">09:26</div><div class="d">Container starts, begins downloading 12 months of FHVHV data (~5.8GB)</div></div>
+    <div class="tl-item"><div class="t">10:29</div><div class="d">Download complete, curate starts</div></div>
+    <div class="tl-item bad"><div class="t">10:29</div><div class="d">Curate finishes with 0 rows readable back — bug #1 found (only December's partition existed)</div></div>
+    <div class="tl-item"><div class="t">10:40</div><div class="d">Rebuilt with the dynamic-overwrite fix, curate reruns — all 12 months confirmed present this time</div></div>
+    <div class="tl-item"><div class="t">10:43</div><div class="d">Gold succeeds: all 6 tables written from 243.5M rows</div></div>
+    <div class="tl-item bad"><div class="t">10:56</div><div class="d">Model crashes — <code>train 0 | test 0</code> — bug #2 found (passenger_count always null for fhvhv)</div></div>
+    <div class="tl-item"><div class="t">11:03</div><div class="d">Rebuilt with the feature-list fix, resumed straight into model (skipping the already-good curate/gold)</div></div>
+    <div class="tl-item now"><div class="t">now</div><div class="d">Model training in progress on 243.5M rows — bench and dashboard still ahead</div></div>
+  </div>
+</section>
+
+<footer>All timestamps from container logs and <code>docker stats</code>, checked directly — not estimated.</footer>
+
+</div>

@@ -1,0 +1,13 @@
+# Native Streamlit theming — matches the warm cream/amber palette already
+# used for the Plotly charts in dashboard/app.py (INK/SEQ/CAT), so buttons,
+# sidebar, tabs and metric tiles read as one product instead of default
+# Streamlit blue sitting next to a custom-colored chart.
+[theme]
+primaryColor = "#B97A1E"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F7F5F0"
+textColor = "#211D16"
+font = "sans serif"
+
+[server]
+headless = true

@@ -8,7 +8,7 @@ explaining that contrast live is the strongest moment in the demo.
     streamlit run src/urbanflow/dashboard/app.py
 """
 from __future__ import annotations
-import json
+import json, os
 from pathlib import Path
 import duckdb, pandas as pd, streamlit as st
 import plotly.express as px
@@ -18,16 +18,81 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from urbanflow import config                                     # noqa: E402
 
+
+def _require_login() -> None:
+    """Single shared password, not per-user accounts — this is a viva demo
+    behind one machine's port, not a multi-tenant app. Set ADMIN_USER /
+    ADMIN_PASSWORD env vars to change the default; don't ship the default
+    password anywhere it's actually exposed to the internet."""
+    if st.session_state.get("authenticated"):
+        return
+    _, mid, _ = st.columns([1, 1.2, 1])
+    with mid:
+        st.title("🚕 UrbanFlow")
+        with st.container(border=True):
+            st.caption("Sign in to view the dashboard")
+            with st.form("login"):
+                user = st.text_input("Username")
+                pwd = st.text_input("Password", type="password")
+                submitted = st.form_submit_button("Sign in", use_container_width=True)
+            if submitted:
+                if (user == os.environ.get("ADMIN_USER", "admin")
+                        and pwd == os.environ.get("ADMIN_PASSWORD", "urbanflow")):
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Wrong username or password")
+    st.stop()
+
 # ---- one restrained palette, used everywhere ----
 INK, MUTED, GRID = "#1B1B18", "#6E6E66", "#E2E2DA"
 SEQ = ["#F0E2C4", "#DFC189", "#C79C4E", "#A87A22", "#7E5A0E"]     # sequential, one hue
 CAT = ["#8A5600", "#0B5A55", "#34406B", "#8A2B2B", "#5E6E33"]     # categorical
 pio.templates["uf"] = pio.templates["plotly_white"]
-pio.templates["uf"].layout.update(font=dict(family="Helvetica, Arial", size=13, color=INK),
-                                  colorway=CAT, margin=dict(l=8, r=8, t=36, b=8))
+pio.templates["uf"].layout.update(font=dict(family="IBM Plex Sans, sans-serif", size=12, color=INK),
+                                  colorway=CAT, margin=dict(l=8, r=8, t=36, b=8),
+                                  height=320)  # one fixed height everywhere — charts stop
+                                               # jumping between tiny and huge tab to tab
 pio.templates.default = "uf"
 
 st.set_page_config(page_title="UrbanFlow", page_icon="🚕", layout="wide")
+
+# Same type system as the project's written docs (Fraunces + IBM Plex Sans/Mono)
+# — the dashboard is otherwise the one deliverable left on Streamlit's stock
+# system font, which is what makes it read as a different, unfinished product
+# next to everything else. .streamlit/config.toml only reaches color, not type.
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+
+html, body, [class*="css"], [data-testid="stAppViewContainer"] {
+    font-family: 'IBM Plex Sans', sans-serif;
+}
+h1, h2, h3 {
+    font-family: 'Fraunces', Georgia, serif !important;
+    font-weight: 600 !important;
+}
+[data-testid="stMetricValue"], [data-testid="stMetricDelta"] {
+    font-family: 'IBM Plex Mono', monospace;
+}
+[data-testid="stSidebar"] {
+    border-right: 1px solid #DDD6C6;
+}
+[data-testid="stSidebar"] h1 {
+    font-size: 1.1rem;
+}
+/* consistent, slightly smaller everywhere — was drifting between tabs */
+h1 { font-size: 1.7rem !important; }
+h2 { font-size: 1.25rem !important; }
+h3 { font-size: 1.05rem !important; }
+p, li, [data-testid="stMarkdownContainer"] { font-size: 0.92rem; }
+[data-testid="stMetricValue"] { font-size: 1.35rem !important; }
+[data-testid="stMetricLabel"] p { font-size: 0.78rem !important; }
+[data-testid="stCaptionContainer"] { font-size: 0.82rem !important; }
+</style>
+""", unsafe_allow_html=True)
+
+_require_login()
 con = duckdb.connect()
 
 
@@ -45,10 +110,192 @@ def js(name: str) -> dict | list:
     return json.loads(p.read_text()) if p.exists() else {}
 
 
+def _last_built() -> str:
+    p = config.GOLD / "daily_kpis"
+    if not p.exists():
+        return "—"
+    files = list(p.glob("*.parquet"))
+    if not files:
+        return "—"
+    import datetime
+    ts = max(f.stat().st_mtime for f in files)
+    return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+def _area(fig):
+    """Fill under the line and emphasise the last point — a chart read at a
+    glance should say 'here's where things stand right now', not just trace
+    a shape."""
+    fig.update_traces(fill="tozeroy", line=dict(width=2))
+    return fig
+
+
+def _dataset_label() -> str:
+    if not config.CURATED.exists():
+        return "—"
+    names = sorted(p.name for p in config.CURATED.iterdir() if p.is_dir())
+    return ", ".join(names) if names else "—"
+
+
+def groq_summary(prompt: str) -> str | None:
+    """One HTTPS call to Groq's OpenAI-compatible chat endpoint via stdlib
+    urllib — no SDK dependency for what is otherwise a single POST request.
+    Returns None (caller shows setup instructions) if no key is configured."""
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        return None
+    import urllib.request
+    model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    body = json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "You explain data-analysis findings in plain English for a "
+                                           "non-technical reader. 3-5 connected sentences, no bullet "
+                                           "lists, no jargon, no numbers beyond what you're given."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 300,
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions", data=body, method="POST",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        data = json.loads(resp.read())
+    return data["choices"][0]["message"]["content"].strip()
+
+
+def _findings_prompt() -> str:
+    """Compile the real numbers already on screen elsewhere in this dashboard
+    into a compact fact list — the model is asked to explain them, never to
+    invent new ones."""
+    d, t, s = gold("daily_kpis"), gold("tipping"), gold("speed_by_hour")
+    m, b = js("model_results.json"), js("benchmarks.json")
+    facts = []
+    if not d.empty:
+        facts.append(f"Total trips: {int(d.trips.sum()):,}. Total revenue: ${d.revenue.sum():,.0f}. "
+                     f"Average fare: ${d.avg_fare.mean():.2f}. Average trip duration: "
+                     f"{d.avg_duration_min.mean():.1f} minutes.")
+    if not t.empty and "is_card" in t.columns:
+        card = t[t.is_card].pct_trips_with_tip.mean()
+        cash = t[~t.is_card].pct_trips_with_tip.mean()
+        facts.append(f"Share of trips with a recorded tip: {card:.0f}% for card payments vs "
+                     f"{cash:.0f}% for cash (cash tips are never recorded in the source data, "
+                     f"which biases any all-trips tip average downward).")
+    if not s.empty:
+        by_hr = s.groupby("pickup_hour").avg_speed_mph.mean()
+        facts.append(f"Average speed ranges from {by_hr.min():.1f} mph at hour {int(by_hr.idxmin())} "
+                     f"(slowest) to {by_hr.max():.1f} mph at hour {int(by_hr.idxmax())} (fastest).")
+    if m:
+        facts.append(f"A trained model predicts trip duration {m['improvement_pct']:.0f}% more "
+                     f"accurately than a naive baseline (baseline error {m['baseline']['rmse_min']:.1f} "
+                     f"min vs model error {m['gbt']['rmse_min']:.1f} min). The strongest predictor is "
+                     f"{m['feature_importance'][0]['feature']}.")
+    if b:
+        for r in b:
+            if r.get("experiment") == "format" and "speedup" in r:
+                facts.append(f"Reading the columnar Parquet format instead of CSV was {r['speedup']}x faster.")
+            if r.get("experiment") == "join" and "speedup" in r:
+                facts.append(f"Broadcasting the small lookup table instead of a full join was {r['speedup']}x faster.")
+            if r.get("experiment") == "cores" and "speedup_vs_1" in r:
+                last = list(r["speedup_vs_1"].values())[-1]
+                facts.append(f"Speedup from 1 core to the max tested was {last}x.")
+    return ("Here are real findings from an analysis of NYC for-hire vehicle trip data. Write a short, "
+            "plain-English summary a non-technical person could understand, highlighting what's "
+            "actually interesting. Do not invent numbers beyond these:\n\n" + "\n".join(facts))
+
+
+with st.sidebar:
+    st.caption("THIS RUN")
+    d0 = gold("daily_kpis")
+    st.caption("Dataset")
+    st.write(_dataset_label())
+    st.caption("Trips in gold layer")
+    st.write(f"{int(d0.trips.sum()):,}" if not d0.empty else "—")
+    st.caption("Gold last built")
+    st.write(_last_built())
+    st.divider()
+    st.button("Log out", on_click=lambda: st.session_state.update(authenticated=False), use_container_width=True)
+
 st.title("UrbanFlow")
 st.caption("Batch analytics over NYC trip records · Apache Spark → Parquet → DuckDB")
 
-kpi, geo, beh, perf = st.tabs(["Overview", "Geography", "Behaviour", "Performance"])
+with st.container(border=True):
+    st.subheader("Key findings, summarized")
+    st.caption("An AI model (Groq) reads the real numbers computed elsewhere on this page and "
+              "writes a few plain-English sentences about them — it never invents its own figures.")
+    if st.button("Generate summary"):
+        try:
+            summary = groq_summary(_findings_prompt())
+        except Exception as e:
+            summary, st.session_state.ai_summary_error = None, str(e)
+        else:
+            st.session_state.ai_summary_error = None
+        if summary is None and st.session_state.get("ai_summary_error") is None:
+            st.session_state.ai_summary_missing_key = True
+        else:
+            st.session_state.ai_summary = summary
+            st.session_state.ai_summary_missing_key = False
+    if st.session_state.get("ai_summary_missing_key"):
+        st.warning("No `GROQ_API_KEY` environment variable is set, so this can't call the model. "
+                  "Set it (e.g. in `docker-compose.yml` or your shell) and try again.")
+    elif st.session_state.get("ai_summary_error"):
+        st.error(f"Couldn't reach Groq: {st.session_state.ai_summary_error}")
+    elif st.session_state.get("ai_summary"):
+        st.write(st.session_state.ai_summary)
+
+explore, kpi, geo, beh, perf, predict = st.tabs(
+    ["Explore", "Overview", "Geography", "Behaviour", "Performance", "Predict"])
+
+# ------------------------------------------------------------------ explore
+with explore:
+    z0 = gold("demand_by_zone_hour")
+    if z0.empty:
+        st.warning("No gold tables yet. Run:  make gold")
+    else:
+        st.caption("Pick what you want to see, then press Search. This filters trips by where "
+                   "they **start** — it does not look at where they end up. For a specific "
+                   "start → end trip, use the **Predict** tab instead.")
+        f1, f2, f3 = st.columns([1.2, 1, 2])
+        borough_choice = f1.selectbox("Pickup borough", ["All"] + sorted(z0.pu_borough.unique()))
+        day_choice = f2.selectbox("Day type", ["All", "Weekday", "Weekend"])
+        hour_range = f3.slider("Hour of day", 0, 23, (0, 23))
+
+        if st.button("Search", type="primary"):
+            st.session_state.explore_searched = True
+
+        if st.session_state.get("explore_searched"):
+            filt = z0.copy()
+            if borough_choice != "All":
+                filt = filt[filt.pu_borough == borough_choice]
+            if day_choice != "All":
+                filt = filt[filt.is_weekend == (day_choice == "Weekend")]
+            filt = filt[(filt.pickup_hour >= hour_range[0]) & (filt.pickup_hour <= hour_range[1])]
+
+            if filt.empty:
+                st.warning("No trips match that filter — try widening it.")
+            else:
+                total_trips = int(filt.trips.sum())
+                avg_dist = (filt.avg_distance * filt.trips).sum() / total_trips
+                avg_dur = (filt.avg_duration_min * filt.trips).sum() / total_trips
+                cc = st.columns(3)
+                for col, (label, value) in zip(cc, [
+                    ("Trips picked up here", f"{total_trips:,}"),
+                    ("Avg distance traveled (any destination)", f"{avg_dist:.1f} mi"),
+                    ("Avg time on the road (any destination)", f"{avg_dur:.1f} min"),
+                ]):
+                    with col.container(border=True):
+                        st.metric(label, value)
+                st.caption("These trips can end anywhere — distance and duration are averaged "
+                          "across every destination, not one specific route.")
+
+                by_hour = filt.groupby("pickup_hour", as_index=False).trips.sum().sort_values("pickup_hour")
+                st.plotly_chart(px.bar(by_hour, x="pickup_hour", y="trips",
+                                       title="Trips by hour, for this filter",
+                                       labels={"pickup_hour": "hour of day", "trips": "trips"}),
+                                use_container_width=True)
+        else:
+            st.info("Choose a borough, day type, and hour range above, then press **Search**.")
 
 # ------------------------------------------------------------------ overview
 with kpi:
@@ -56,15 +303,24 @@ with kpi:
     if d.empty:
         st.warning("No gold tables yet. Run:  make gold")
     else:
+        st.caption("Totals across every trip in the curated data — every borough, every hour, "
+                  "the whole time range. Not filtered to anything.")
         c = st.columns(4)
-        c[0].metric("Trips", f"{int(d.trips.sum()):,}")
-        c[1].metric("Revenue", f"${d.revenue.sum():,.0f}")
-        c[2].metric("Avg fare", f"${d.avg_fare.mean():.2f}")
-        c[3].metric("Avg duration", f"{d.avg_duration_min.mean():.1f} min")
-        st.plotly_chart(px.line(d, x="d", y="trips", title="Trips per day",
-                                labels={"d": "", "trips": "trips"}), use_container_width=True)
-        st.plotly_chart(px.line(d, x="d", y="revenue", title="Revenue per day",
-                                labels={"d": "", "revenue": "revenue ($)"}), use_container_width=True)
+        stats = [("Trips", f"{int(d.trips.sum()):,}"),
+                  ("Revenue", f"${d.revenue.sum():,.0f}"),
+                  ("Avg fare", f"${d.avg_fare.mean():.2f}"),
+                  ("Avg duration", f"{d.avg_duration_min.mean():.1f} min")]
+        for col, (label, value) in zip(c, stats):
+            with col.container(border=True):
+                st.metric(label, value)
+        st.plotly_chart(_area(px.line(d, x="d", y="trips", title="Trips per day",
+                                      labels={"d": "", "trips": "trips"})), use_container_width=True)
+        st.caption("How many trips happened on each day — flat means steady demand, spikes usually "
+                  "mean a specific event or day-of-week pattern.")
+        st.plotly_chart(_area(px.line(d, x="d", y="revenue", title="Revenue per day",
+                                      labels={"d": "", "revenue": "revenue ($)"})), use_container_width=True)
+        st.caption("Total fares collected each day — tracks trips per day closely unless fares "
+                  "themselves are changing (e.g. surge pricing, longer trips).")
 
 # ------------------------------------------------------------------ geography
 with geo:
@@ -72,6 +328,9 @@ with geo:
     if z.empty:
         st.warning("Run:  make gold")
     else:
+        st.caption("Darker cells = more trips picked up in that borough during that hour. "
+                  "Read across a row to see one borough's rush-hour pattern; read down a "
+                  "column to compare boroughs at the same hour.")
         piv = (z.groupby(["pu_borough", "pickup_hour"], as_index=False)["trips"].sum()
                  .pivot(index="pu_borough", columns="pickup_hour", values="trips").fillna(0))
         st.plotly_chart(px.imshow(piv, aspect="auto", color_continuous_scale=SEQ,
@@ -80,6 +339,8 @@ with geo:
         od = gold("od_matrix")
         if not od.empty:
             st.subheader("Busiest origin–destination pairs")
+            st.caption("The specific pickup→dropoff zone pairs with the most trips, and what a "
+                      "trip on that exact route costs and takes on average.")
             st.dataframe(od.head(25), use_container_width=True, hide_index=True)
 
 # ------------------------------------------------------------------ behaviour
@@ -96,14 +357,19 @@ with beh:
                 "paragraph in the report.")
     s = gold("speed_by_hour")
     if not s.empty:
-        st.plotly_chart(px.line(s.groupby("pickup_hour", as_index=False).avg_speed_mph.mean(),
-                                x="pickup_hour", y="avg_speed_mph",
-                                title="Average speed by hour — the city slowing down",
-                                labels={"pickup_hour": "hour of day", "avg_speed_mph": "mph"}),
+        st.plotly_chart(_area(px.line(s.groupby("pickup_hour", as_index=False).avg_speed_mph.mean(),
+                                      x="pickup_hour", y="avg_speed_mph",
+                                      title="Average speed by hour — the city slowing down",
+                                      labels={"pickup_hour": "hour of day", "avg_speed_mph": "mph"})),
                         use_container_width=True)
+        st.caption("Average speed of every trip that started in that hour, across all boroughs. "
+                  "Dips are rush hour — the city's traffic physically slowing every vehicle down, "
+                  "not a data artifact.")
 
 # ------------------------------------------------------------------ performance
 with perf:
+    st.caption("This tab is about the computer, not the trips — how fast different ways of "
+              "storing and querying the same data actually are. Bigger × means bigger win.")
     b = js("benchmarks.json")
     if not b:
         st.warning("Run:  make bench")
@@ -116,16 +382,102 @@ with perf:
                 f = px.line(sp, x="cores", y=["speedup", "ideal"], markers=True,
                             title="Speedup vs cores — measured against linear")
                 st.plotly_chart(f, use_container_width=True)
+            elif r.get("skipped"):
+                st.info(f"Skipped — only {r.get('partitions_present', '?')} partition present, nothing to compare.")
             else:
-                st.write({k: v for k, v in r.items() if k not in ("experiment", "note")})
+                # generic before/after/speedup card for format & join experiments
+                timing_keys = [k for k in r if k.endswith("_s")]
+                if len(timing_keys) == 2 and "speedup" in r:
+                    cc = st.columns(3)
+                    for col, k in zip(cc, timing_keys):
+                        with col.container(border=True):
+                            st.metric(k[:-2].replace("_", " ").title(), f"{r[k]:.3f}s")
+                    with cc[2].container(border=True):
+                        st.metric("Speedup", f"{r['speedup']}×")
+                else:
+                    st.write({k: v for k, v in r.items() if k not in ("experiment", "note")})
             st.caption(r["note"])
     m = js("model_results.json")
     if m:
         st.subheader("Trip-duration model")
+        st.caption("How well a trained model predicts how long a trip will take, compared to a "
+                  "simple guess (distance ÷ average speed). RMSE is the model's typical error in "
+                  "minutes — lower is better; a bigger improvement % means the model actually "
+                  "learned something a naive guess couldn't.")
         c = st.columns(3)
-        c[0].metric("Baseline RMSE", f"{m['baseline']['rmse_min']:.2f} min")
-        c[1].metric("GBT RMSE", f"{m['gbt']['rmse_min']:.2f} min")
-        c[2].metric("Improvement", f"{m['improvement_pct']:.1f}%")
+        model_stats = [("Baseline RMSE (simple guess)", f"{m['baseline']['rmse_min']:.2f} min"),
+                        ("GBT RMSE (trained model)", f"{m['gbt']['rmse_min']:.2f} min"),
+                        ("Improvement", f"{m['improvement_pct']:.1f}%")]
+        for col, (label, value) in zip(c, model_stats):
+            with col.container(border=True):
+                st.metric(label, value)
         fi = pd.DataFrame(m["feature_importance"])
         st.plotly_chart(px.bar(fi, x="importance", y="feature", orientation="h",
                                title="Feature importance"), use_container_width=True)
+        st.caption("Which inputs the model actually relied on to make its predictions — longer "
+                  "bars mean that input mattered more. Distance dominating makes intuitive sense; "
+                  "it's here to show the model isn't relying on something it shouldn't.")
+
+# ------------------------------------------------------------------ predict
+with predict:
+    dp = gold("duration_predictions")
+    route_dist = gold("route_avg_distance")
+    if dp.empty:
+        st.warning("Run:  make predict-grid  (after make model)")
+    else:
+        st.caption("Pick a trip shape below — the prediction comes from the trained GBT "
+                   "model, scored ahead of time over this exact grid. No Spark runs in "
+                   "this dashboard process; this is a lookup, not a live model call.")
+        c1, c2 = st.columns(2)
+        pu = c1.selectbox("Pickup borough", sorted(dp.pu_borough.unique()))
+        do = c2.selectbox("Dropoff borough", sorted(dp.do_borough.unique()))
+
+        # auto-suggest a realistic distance for this exact route, from the real
+        # curated data — instead of making someone guess a number cold
+        available_dist = sorted(dp.trip_distance.unique())
+        default_dist = available_dist[len(available_dist) // 2]
+        route_hint = None
+        if not route_dist.empty:
+            m = route_dist[(route_dist.pu_borough == pu) & (route_dist.do_borough == do)]
+            if not m.empty:
+                route_hint = float(m.iloc[0].avg_distance)
+                default_dist = min(available_dist, key=lambda x: abs(x - route_hint))
+
+        c3, c4, c5 = st.columns(3)
+        hour = c3.selectbox("Pickup hour", sorted(dp.pickup_hour.unique()))
+        day_type = c4.selectbox("Day type", ["Weekday", "Weekend"])
+        dow = 4 if day_type == "Weekday" else 7
+        # key changes with the route so switching pu/do resets to that route's
+        # own typical distance; picking within the same route keeps your choice
+        dist = c5.selectbox("Trip distance (mi)", available_dist,
+                            index=available_dist.index(default_dist), key=f"dist_{pu}_{do}")
+        if route_hint is not None:
+            c5.caption(f"Typical for this route: ~{route_hint:.0f} mi")
+
+        if st.button("Predict duration", type="primary"):
+            match = dp[(dp.pu_borough == pu) & (dp.do_borough == do) &
+                       (dp.pickup_hour == hour) & (dp.pickup_dow == dow) &
+                       (dp.trip_distance == dist)]
+            if match.empty:
+                st.error("No prediction for that combination — the grid may be incomplete.")
+            else:
+                with st.container(border=True):
+                    st.metric("Predicted duration", f"{match.iloc[0].predicted_duration_min:.1f} min")
+
+                by_hour = (dp[(dp.pu_borough == pu) & (dp.do_borough == do) &
+                              (dp.pickup_dow == dow) & (dp.trip_distance == dist)]
+                           .sort_values("pickup_hour"))
+                fig = px.line(by_hour, x="pickup_hour", y="predicted_duration_min",
+                             title=f"Predicted duration across the day — {pu} → {do}, "
+                                   f"{dist:.0f} mi, {day_type}",
+                             labels={"pickup_hour": "hour of day", "predicted_duration_min": "minutes"})
+                fig.add_scatter(x=[hour], y=[match.iloc[0].predicted_duration_min], mode="markers",
+                                marker=dict(size=13, color=CAT[3]), name="Your pick", showlegend=False)
+                st.plotly_chart(_area(fig), use_container_width=True)
+
+                best = by_hour.loc[by_hour.predicted_duration_min.idxmin()]
+                if int(best.pickup_hour) != hour:
+                    saved = match.iloc[0].predicted_duration_min - best.predicted_duration_min
+                    st.info(f"**If the time is flexible:** {int(best.pickup_hour):02d}:00 is the "
+                           f"fastest hour for this exact route — about {saved:.0f} minutes quicker "
+                           f"than your {hour:02d}:00 pick.")

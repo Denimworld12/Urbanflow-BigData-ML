@@ -7,6 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+# Without this, stdout is block-buffered when there's no TTY (i.e. always, in
+# a container) — print() output from curate/gold/model can sit invisible in
+# `docker logs` for many minutes even while genuinely progressing, and looks
+# identical to a hang.
+ENV PYTHONUNBUFFERED=1
 
 # Dependencies first so they cache across code-only changes.
 COPY requirements.txt Makefile ./

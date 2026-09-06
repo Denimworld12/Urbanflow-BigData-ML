@@ -34,6 +34,9 @@ gold:         ## silver -> gold: the six answer tables
 model:        ## train the trip-duration model against a naive baseline
 	PYTHONPATH=src $(PY) -m urbanflow.analyze.model --dataset $(DATASET)
 
+predict-grid: ## score the trained model over a representative trip grid, for the dashboard's Predict tab
+	PYTHONPATH=src $(PY) -m urbanflow.analyze.predict_grid --dataset $(DATASET)
+
 bench:        ## run the benchmark suite (format, partitioning, join, cores)
 	PYTHONPATH=src $(PY) -m urbanflow.analyze.benchmark --dataset $(DATASET)
 

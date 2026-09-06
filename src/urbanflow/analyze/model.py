@@ -24,11 +24,18 @@ FEATURES_NUM = ["trip_distance", "pickup_hour", "pickup_dow", "passenger_count"]
 FEATURES_CAT = ["pu_borough", "do_borough"]
 LABEL = "duration_min"
 
+# fhvhv/fhv have no passenger_count field at all (see curate/clean.py
+# normalise()) — it's null for every row, so including it here would make
+# .dropna() below discard the entire dataset instead of just bad rows.
+NO_PASSENGER_COUNT = {"fhvhv", "fhv"}
+
 
 def run(dataset: str = "yellow", sample: float = 1.0, max_iter: int = 30) -> None:
     spark = get_spark("UrbanFlow-model")
     print(describe(spark))
-    df = curated(spark, dataset).select(*FEATURES_NUM, *FEATURES_CAT, LABEL, "pickup_ts", "speed_mph").dropna()
+    features_num = [c for c in FEATURES_NUM
+                     if c != "passenger_count" or dataset not in NO_PASSENGER_COUNT]
+    df = curated(spark, dataset).select(*features_num, *FEATURES_CAT, LABEL, "pickup_ts", "speed_mph").dropna()
     if sample < 1.0:
         df = df.sample(False, sample, seed=42)
 
@@ -48,7 +55,7 @@ def run(dataset: str = "yellow", sample: float = 1.0, max_iter: int = 30) -> Non
     # ---- model ----
     idx = [StringIndexer(inputCol=c, outputCol=f"{c}_i", handleInvalid="keep") for c in FEATURES_CAT]
     ohe = OneHotEncoder(inputCols=[f"{c}_i" for c in FEATURES_CAT], outputCols=[f"{c}_v" for c in FEATURES_CAT])
-    asm = VectorAssembler(inputCols=FEATURES_NUM + [f"{c}_v" for c in FEATURES_CAT], outputCol="features")
+    asm = VectorAssembler(inputCols=features_num + [f"{c}_v" for c in FEATURES_CAT], outputCol="features")
     gbt = GBTRegressor(featuresCol="features", labelCol=LABEL, maxIter=max_iter, maxDepth=5, seed=42)
     model = Pipeline(stages=[*idx, ohe, asm, gbt]).fit(train)
 
@@ -59,7 +66,7 @@ def run(dataset: str = "yellow", sample: float = 1.0, max_iter: int = 30) -> Non
     r2 = ev2.setMetricName("r2").evaluate(pred)
 
     gbt_model = model.stages[-1]
-    names = FEATURES_NUM + [f"{c}_v" for c in FEATURES_CAT]
+    names = features_num + [f"{c}_v" for c in FEATURES_CAT]
     imp = sorted(zip(names, list(gbt_model.featureImportances.toArray())[:len(names)]),
                  key=lambda t: -t[1])
 
