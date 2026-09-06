@@ -78,6 +78,17 @@ def speed_by_hour(df: DataFrame) -> DataFrame:
               .orderBy("pu_borough", "pickup_hour"))
 
 
+def earnings_by_area_hour(df: DataFrame) -> DataFrame:
+    """The driver's question with a time dimension: not just which area pays
+    best, but which area pays best *right now*. avg_fare here is total_amount
+    (what the rider paid), matching od_matrix's convention."""
+    return (df.groupBy("pu_borough", "pickup_hour", "is_weekend")
+              .agg(F.count("*").alias("trips"),
+                   F.round(F.avg("total_amount"), 2).alias("avg_fare"),
+                   F.round(F.avg("duration_min"), 2).alias("avg_duration_min"))
+              .orderBy("pu_borough", "pickup_hour"))
+
+
 def airport_flows(df: DataFrame) -> DataFrame:
     air = F.col("pu_zone").rlike("(?i)airport|JFK|LaGuardia|EWR") | F.col("do_zone").rlike("(?i)airport|JFK|LaGuardia|EWR")
     return (df.filter(air)
@@ -95,6 +106,7 @@ TABLES = {
     "tipping": tipping,
     "speed_by_hour": speed_by_hour,
     "airport_flows": airport_flows,
+    "earnings_by_area_hour": earnings_by_area_hour,
 }
 
 

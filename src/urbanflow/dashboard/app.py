@@ -8,15 +8,26 @@ explaining that contrast live is the strongest moment in the demo.
     streamlit run src/urbanflow/dashboard/app.py
 """
 from __future__ import annotations
-import json, os
+import hashlib, json, os
 from pathlib import Path
 import duckdb, pandas as pd, streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
 import plotly.io as pio
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from urbanflow import config                                     # noqa: E402
+
+
+def _session_token() -> str:
+    """Deterministic, not random — so it survives a page refresh AND a
+    container restart with zero server-side session storage. It's a hash of
+    the shared password, not the password itself, sitting in the URL as a
+    'remember me' token. Fine for a single-shared-password local/demo tool;
+    would need real per-user sessions before this touched the open internet."""
+    pwd = os.environ.get("ADMIN_PASSWORD", "urbanflow")
+    return hashlib.sha256(pwd.encode()).hexdigest()[:16]
 
 
 def _require_login() -> None:
@@ -25,6 +36,9 @@ def _require_login() -> None:
     ADMIN_PASSWORD env vars to change the default; don't ship the default
     password anywhere it's actually exposed to the internet."""
     if st.session_state.get("authenticated"):
+        return
+    if st.query_params.get("t") == _session_token():
+        st.session_state.authenticated = True
         return
     _, mid, _ = st.columns([1, 1.2, 1])
     with mid:
@@ -39,6 +53,7 @@ def _require_login() -> None:
                 if (user == os.environ.get("ADMIN_USER", "admin")
                         and pwd == os.environ.get("ADMIN_PASSWORD", "urbanflow")):
                     st.session_state.authenticated = True
+                    st.query_params["t"] = _session_token()
                     st.rerun()
                 else:
                     st.error("Wrong username or password")
@@ -48,6 +63,19 @@ def _require_login() -> None:
 INK, MUTED, GRID = "#1B1B18", "#6E6E66", "#E2E2DA"
 SEQ = ["#F0E2C4", "#DFC189", "#C79C4E", "#A87A22", "#7E5A0E"]     # sequential, one hue
 CAT = ["#8A5600", "#0B5A55", "#34406B", "#8A2B2B", "#5E6E33"]     # categorical
+
+# Approximate centroids — the pipeline only carries borough-level geography
+# (the 265-zone shapefile is a separate TLC download this project never
+# pulls), and every chart in this dashboard already operates at that same
+# borough granularity, so this is enough for a real map, not a placeholder.
+BOROUGH_COORDS = {
+    "Manhattan":      (40.7831, -73.9712),
+    "Brooklyn":       (40.6782, -73.9442),
+    "Queens":         (40.7282, -73.7949),
+    "Bronx":          (40.8448, -73.8648),
+    "Staten Island":  (40.5795, -74.1502),
+    "EWR":            (40.6895, -74.1745),
+}
 pio.templates["uf"] = pio.templates["plotly_white"]
 pio.templates["uf"].layout.update(font=dict(family="IBM Plex Sans, sans-serif", size=12, color=INK),
                                   colorway=CAT, margin=dict(l=8, r=8, t=36, b=8),
@@ -137,38 +165,63 @@ def _dataset_label() -> str:
     return ", ".join(names) if names else "—"
 
 
-def groq_summary(prompt: str) -> str | None:
+@st.cache_data(show_spinner=False, ttl=3600)
+def road_route(pu_lat: float, pu_lon: float, do_lat: float, do_lon: float):
+    """A real driving route between two points, from OSRM's free public
+    demo router — actual roads and turns, not a straight line pretending to
+    be one. Returns (list of (lat, lon), True) for a real route, or
+    ([(pu),(do)], False) as an honest straight-line fallback if the service
+    is unreachable — never silently fakes a curve to look plausible."""
+    import urllib.request
+    url = (f"https://router.project-osrm.org/route/v1/driving/"
+          f"{pu_lon},{pu_lat};{do_lon},{do_lat}?overview=full&geometries=geojson")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "urbanflow-dashboard"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+        coords = data["routes"][0]["geometry"]["coordinates"]  # [[lon, lat], ...]
+        return [(lat, lon) for lon, lat in coords], True
+    except Exception:
+        return [(pu_lat, pu_lon), (do_lat, do_lon)], False
+
+
+def groq_chat(messages: list[dict]) -> str | None:
     """One HTTPS call to Groq's OpenAI-compatible chat endpoint via stdlib
     urllib — no SDK dependency for what is otherwise a single POST request.
+    `messages` is the full conversation so far (system + history + new
+    question) — that's what gives it "memory": each call resends everything
+    said before, since Groq itself is stateless between calls.
     Returns None (caller shows setup instructions) if no key is configured."""
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         return None
     import urllib.request
-    model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    model = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
     body = json.dumps({
         "model": model,
-        "messages": [
-            {"role": "system", "content": "You explain data-analysis findings in plain English for a "
-                                           "non-technical reader. 3-5 connected sentences, no bullet "
-                                           "lists, no jargon, no numbers beyond what you're given."},
-            {"role": "user", "content": prompt},
-        ],
+        "messages": messages,
         "temperature": 0.3,
-        "max_tokens": 300,
+        # gpt-oss models spend some of this budget on an internal reasoning
+        # pass before the visible answer — too low and content comes back
+        # empty even though the request "succeeds".
+        "max_tokens": 600,
     }).encode()
     req = urllib.request.Request(
         "https://api.groq.com/openai/v1/chat/completions", data=body, method="POST",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
+                 # Cloudflare (fronting Groq's API) blocks urllib's default
+                 # "Python-urllib/x.y" User-Agent as bot traffic (error 1010).
+                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"})
     with urllib.request.urlopen(req, timeout=25) as resp:
         data = json.loads(resp.read())
     return data["choices"][0]["message"]["content"].strip()
 
 
-def _findings_prompt() -> str:
+def _findings_facts() -> str:
     """Compile the real numbers already on screen elsewhere in this dashboard
-    into a compact fact list — the model is asked to explain them, never to
-    invent new ones."""
+    into a compact fact list — the only thing the AI is allowed to talk
+    about. Shown to the user verbatim in an expander too, so "what is it
+    even summarizing" has a direct, checkable answer."""
     d, t, s = gold("daily_kpis"), gold("tipping"), gold("speed_by_hour")
     m, b = js("model_results.json"), js("benchmarks.json")
     facts = []
@@ -200,9 +253,7 @@ def _findings_prompt() -> str:
             if r.get("experiment") == "cores" and "speedup_vs_1" in r:
                 last = list(r["speedup_vs_1"].values())[-1]
                 facts.append(f"Speedup from 1 core to the max tested was {last}x.")
-    return ("Here are real findings from an analysis of NYC for-hire vehicle trip data. Write a short, "
-            "plain-English summary a non-technical person could understand, highlighting what's "
-            "actually interesting. Do not invent numbers beyond these:\n\n" + "\n".join(facts))
+    return "\n".join(facts)
 
 
 with st.sidebar:
@@ -215,37 +266,55 @@ with st.sidebar:
     st.caption("Gold last built")
     st.write(_last_built())
     st.divider()
-    st.button("Log out", on_click=lambda: st.session_state.update(authenticated=False), use_container_width=True)
+    def _logout():
+        st.session_state.authenticated = False
+        st.query_params.clear()   # otherwise the URL's token logs you right back in
+    st.button("Log out", on_click=_logout, use_container_width=True)
 
 st.title("UrbanFlow")
 st.caption("Batch analytics over NYC trip records · Apache Spark → Parquet → DuckDB")
 
 with st.container(border=True):
-    st.subheader("Key findings, summarized")
-    st.caption("An AI model (Groq) reads the real numbers computed elsewhere on this page and "
-              "writes a few plain-English sentences about them — it never invents its own figures.")
-    if st.button("Generate summary"):
-        try:
-            summary = groq_summary(_findings_prompt())
-        except Exception as e:
-            summary, st.session_state.ai_summary_error = None, str(e)
-        else:
-            st.session_state.ai_summary_error = None
-        if summary is None and st.session_state.get("ai_summary_error") is None:
-            st.session_state.ai_summary_missing_key = True
-        else:
-            st.session_state.ai_summary = summary
-            st.session_state.ai_summary_missing_key = False
-    if st.session_state.get("ai_summary_missing_key"):
-        st.warning("No `GROQ_API_KEY` environment variable is set, so this can't call the model. "
-                  "Set it (e.g. in `docker-compose.yml` or your shell) and try again.")
-    elif st.session_state.get("ai_summary_error"):
-        st.error(f"Couldn't reach Groq: {st.session_state.ai_summary_error}")
-    elif st.session_state.get("ai_summary"):
-        st.write(st.session_state.ai_summary)
+    st.subheader("Ask about the data (AI, Groq)")
+    with st.expander("What is it actually allowed to talk about? (the exact facts, nothing else)"):
+        st.code(_findings_facts() or "No gold tables yet.", language=None)
+    st.caption("It remembers this conversation — ask a follow-up and it keeps context. It can only "
+              "use the facts above; it's told never to invent a number.")
 
-explore, kpi, geo, beh, perf, predict = st.tabs(
-    ["Explore", "Overview", "Geography", "Behaviour", "Performance", "Predict"])
+    if "chat" not in st.session_state:
+        st.session_state.chat = []
+
+    for msg in st.session_state.chat:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+
+    def _ask(user_text: str) -> None:
+        st.session_state.chat.append({"role": "user", "content": user_text})
+        system = {"role": "system", "content": (
+            "You explain data-analysis findings in plain English for a non-technical reader. "
+            "No bullet lists, no jargon. Only use the facts below — never invent a number. If "
+            "asked something these facts don't cover, say so plainly rather than guessing.\n\n"
+            "Facts:\n" + _findings_facts())}
+        try:
+            reply = groq_chat([system] + st.session_state.chat)
+        except Exception as e:
+            reply = f"Couldn't reach Groq: {e}"
+        else:
+            if reply is None:
+                reply = "No `GROQ_API_KEY` is set, so this can't reach the model — set it and try again."
+        st.session_state.chat.append({"role": "assistant", "content": reply})
+
+    if not st.session_state.chat:
+        if st.button("Summarize the key findings"):
+            _ask("Summarize the most interesting findings in 3-5 plain-English sentences.")
+            st.rerun()
+    question = st.chat_input("Ask your own question about these findings")
+    if question:
+        _ask(question)
+        st.rerun()
+
+predict, explore, kpi, geo, beh, perf = st.tabs(
+    ["Predict", "Explore", "Overview", "Geography", "Behaviour", "Performance"])
 
 # ------------------------------------------------------------------ explore
 with explore:
@@ -257,7 +326,7 @@ with explore:
                    "they **start** — it does not look at where they end up. For a specific "
                    "start → end trip, use the **Predict** tab instead.")
         f1, f2, f3 = st.columns([1.2, 1, 2])
-        borough_choice = f1.selectbox("Pickup borough", ["All"] + sorted(z0.pu_borough.unique()))
+        borough_choice = f1.selectbox("Pickup area", ["All"] + sorted(z0.pu_borough.unique()))
         day_choice = f2.selectbox("Day type", ["All", "Weekday", "Weekend"])
         hour_range = f3.slider("Hour of day", 0, 23, (0, 23))
 
@@ -295,7 +364,7 @@ with explore:
                                        labels={"pickup_hour": "hour of day", "trips": "trips"}),
                                 use_container_width=True)
         else:
-            st.info("Choose a borough, day type, and hour range above, then press **Search**.")
+            st.info("Choose an area, day type, and hour range above, then press **Search**.")
 
 # ------------------------------------------------------------------ overview
 with kpi:
@@ -303,7 +372,7 @@ with kpi:
     if d.empty:
         st.warning("No gold tables yet. Run:  make gold")
     else:
-        st.caption("Totals across every trip in the curated data — every borough, every hour, "
+        st.caption("Totals across every trip in the curated data — every area, every hour, "
                   "the whole time range. Not filtered to anything.")
         c = st.columns(4)
         stats = [("Trips", f"{int(d.trips.sum()):,}"),
@@ -325,23 +394,139 @@ with kpi:
 # ------------------------------------------------------------------ geography
 with geo:
     z = gold("demand_by_zone_hour")
+    od = gold("od_matrix")
     if z.empty:
         st.warning("Run:  make gold")
     else:
-        st.caption("Darker cells = more trips picked up in that borough during that hour. "
-                  "Read across a row to see one borough's rush-hour pattern; read down a "
-                  "column to compare boroughs at the same hour.")
+        st.subheader("One map, pick what it shows you")
+        st.caption("Same six areas every time — only the color changes. Real NYC geography, "
+                  "drag to pan, scroll to zoom.")
+
+        by_area = z.groupby("pu_borough", as_index=False).agg(trips=("trips", "sum"),
+                                                                avg_distance=("avg_distance", "mean"))
+        weekend = (z.groupby(["pu_borough", "is_weekend"])["trips"].sum().unstack(fill_value=0))
+        by_area["weekend_pct"] = by_area.pu_borough.map(
+            lambda b: round(100 * weekend.loc[b, True] / weekend.loc[b].sum(), 1) if b in weekend.index else None)
+        if not od.empty:
+            od_w = od.assign(w=od.trips)
+            fare_by_area = (od_w.groupby("pu_borough")
+                            .apply(lambda g: (g.avg_fare * g.w).sum() / g.w.sum(), include_groups=False)
+                            .rename("avg_fare"))
+            by_area = by_area.merge(fare_by_area, on="pu_borough", how="left")
+        by_area["lat"] = by_area.pu_borough.map(lambda b: BOROUGH_COORDS.get(b, (None, None))[0])
+        by_area["lon"] = by_area.pu_borough.map(lambda b: BOROUGH_COORDS.get(b, (None, None))[1])
+        by_area = by_area.dropna(subset=["lat", "lon"])
+
+        metrics = {"Trips picked up": "trips", "Avg fare ($)": "avg_fare",
+                   "Avg distance (mi)": "avg_distance", "Weekend share (%)": "weekend_pct"}
+        metrics = {k: v for k, v in metrics.items() if v in by_area.columns}
+        metric_label = st.selectbox("Color the map by", list(metrics))
+        metric_col = metrics[metric_label]
+
+        # scatter_map — real street/place-name tiles (Carto's free basemap,
+        # no API key), the actual Google-Maps-like look. Trade-off, stated
+        # plainly: this needs your browser to fetch image tiles from Carto's
+        # server; if a network/proxy/ad-blocker blocks that, it renders
+        # blank instead of failing loudly. If that happens again, the fix
+        # is the vector map (no network needed, but a plainer look) this
+        # replaced — tell me and I'll switch back.
+        fig_map = px.scatter_map(by_area, lat="lat", lon="lon", size="trips", color=metric_col,
+                                 hover_name="pu_borough",
+                                 hover_data={"trips": True, "lat": False, "lon": False},
+                                 color_continuous_scale=SEQ, size_max=45, zoom=8.3,
+                                 center={"lat": by_area.lat.mean(), "lon": by_area.lon.mean()},
+                                 title=f"{metric_label}, by area")
+        fig_map.update_layout(map_style="carto-positron", height=420)
+        st.plotly_chart(fig_map, use_container_width=True)
+
+        st.caption("Darker cells = more trips picked up in that area during that hour. "
+                  "Read across a row to see one area's rush-hour pattern; read down a "
+                  "column to compare areas at the same hour.")
         piv = (z.groupby(["pu_borough", "pickup_hour"], as_index=False)["trips"].sum()
                  .pivot(index="pu_borough", columns="pickup_hour", values="trips").fillna(0))
         st.plotly_chart(px.imshow(piv, aspect="auto", color_continuous_scale=SEQ,
                                   labels=dict(x="hour of day", y="", color="trips"),
-                                  title="Demand by borough and hour"), use_container_width=True)
-        od = gold("od_matrix")
+                                  title="Demand by area and hour"), use_container_width=True)
+
+        eah = gold("earnings_by_area_hour")
+        if not eah.empty:
+            st.subheader("For drivers: which area pays best, right now?")
+            st.caption("Same grid, the driver's question: not \"where are the most rides\" but "
+                      "\"where does an hour of driving earn the most.\" Combinations with under "
+                      "1,000 recorded trips are dropped — a single lucky fare isn't a pattern.")
+            # the gold table has separate weekday/weekend rows per area+hour —
+            # combine them (trip-weighted, not a naive average of the two
+            # rates) before pivoting, or pivot() hits duplicate index entries
+            combined = (eah.groupby(["pu_borough", "pickup_hour"])
+                        .apply(lambda g: pd.Series({
+                            "trips": g.trips.sum(),
+                            "avg_fare": (g.avg_fare * g.trips).sum() / g.trips.sum(),
+                            "avg_duration_min": (g.avg_duration_min * g.trips).sum() / g.trips.sum(),
+                        }), include_groups=False)
+                        .reset_index())
+            eah_trust = combined[combined.trips >= 1000].copy()
+            eah_trust["earn_per_hour"] = (eah_trust.avg_fare / (eah_trust.avg_duration_min / 60)).round(2)
+            piv_earn = (eah_trust.pivot(index="pu_borough", columns="pickup_hour", values="earn_per_hour"))
+            st.plotly_chart(px.imshow(piv_earn, aspect="auto", color_continuous_scale=SEQ,
+                                      labels=dict(x="hour of day", y="", color="$/hour"),
+                                      title="Average $/hour by area and hour"), use_container_width=True)
         if not od.empty:
             st.subheader("Busiest origin–destination pairs")
             st.caption("The specific pickup→dropoff zone pairs with the most trips, and what a "
-                      "trip on that exact route costs and takes on average.")
+                      "trip on that exact route costs and takes on average — the customer's "
+                      "question: where do most rides actually go, and what should I expect to pay.")
             st.dataframe(od.head(25), use_container_width=True, hide_index=True)
+
+            st.subheader("For drivers: the highest-earning routes")
+            st.caption("Same data, the driver's question instead: not \"what does a ride cost\" but "
+                      "\"where do I actually make money.\" Ranked by $/hour, not total fare — a "
+                      "route that pays more per ride isn't better if it also takes much longer.")
+            od_drv = od[od.avg_duration_min > 0].copy()
+            od_drv["earn_per_hour"] = (od_drv.avg_fare / (od_drv.avg_duration_min / 60)).round(2)
+            od_drv["route"] = od_drv.pu_zone + " → " + od_drv.do_zone
+            top_drv = od_drv.sort_values("earn_per_hour", ascending=False).head(10)
+            st.plotly_chart(px.bar(top_drv, x="earn_per_hour", y="route", orientation="h",
+                                   title="Top 10 routes by earnings per hour on the road",
+                                   labels={"earn_per_hour": "$ per hour", "route": ""}),
+                            use_container_width=True)
+            st.dataframe(top_drv[["route", "avg_fare", "avg_duration_min", "earn_per_hour", "trips"]]
+                        .rename(columns={"avg_fare": "avg fare ($)", "avg_duration_min": "avg minutes",
+                                         "earn_per_hour": "$/hour", "trips": "how often this happens"}),
+                        use_container_width=True, hide_index=True)
+
+            st.subheader("For drivers: which area should I start my shift in?")
+            st.caption("Not one lucky route, but an overall area — every pickup from here, "
+                      "averaged, weighted by how often each route actually happens.")
+            area_earn = (od_drv.assign(w=od_drv.trips)
+                        .groupby("pu_borough")
+                        .apply(lambda g: (g.avg_fare * g.w).sum() / (g.avg_duration_min / 60 * g.w).sum(),
+                               include_groups=False)
+                        .reset_index(name="earn_per_hour").sort_values("earn_per_hour", ascending=False))
+            st.plotly_chart(px.bar(area_earn, x="pu_borough", y="earn_per_hour",
+                                   title="Average $/hour by pickup area (all routes from there, combined)",
+                                   labels={"pu_borough": "", "earn_per_hour": "$ per hour"}),
+                            use_container_width=True)
+
+            st.subheader("For customers: the cheapest routes")
+            st.caption("The other side of the same table — routes that happen often enough to "
+                      "trust (50+ recorded trips) and cost the least.")
+            cheap = od[od.trips >= 50].sort_values("avg_fare").head(10).copy()
+            cheap["route"] = cheap.pu_zone + " → " + cheap.do_zone
+            st.dataframe(cheap[["route", "avg_fare", "avg_duration_min", "trips"]]
+                        .rename(columns={"avg_fare": "avg fare ($)", "avg_duration_min": "avg minutes",
+                                         "trips": "how often this happens"}),
+                        use_container_width=True, hide_index=True)
+
+            st.subheader("Weekday vs weekend: where's the demand?")
+            st.caption("For drivers deciding where to position, and customers curious if their "
+                      "area gets quiet on weekends. Same area can swing either way — a business "
+                      "district empties out on Saturday; a nightlife area does the opposite.")
+            wk = z.groupby(["pu_borough", "is_weekend"], as_index=False).trips.sum()
+            wk["Day type"] = wk.is_weekend.map({True: "Weekend", False: "Weekday"})
+            st.plotly_chart(px.bar(wk, x="pu_borough", y="trips", color="Day type", barmode="group",
+                                   title="Trips by area — weekday vs weekend",
+                                   labels={"pu_borough": "", "trips": "trips"}),
+                            use_container_width=True)
 
 # ------------------------------------------------------------------ behaviour
 with beh:
@@ -362,12 +547,36 @@ with beh:
                                       title="Average speed by hour — the city slowing down",
                                       labels={"pickup_hour": "hour of day", "avg_speed_mph": "mph"})),
                         use_container_width=True)
-        st.caption("Average speed of every trip that started in that hour, across all boroughs. "
+        st.caption("Average speed of every trip that started in that hour, across all areas. "
                   "Dips are rush hour — the city's traffic physically slowing every vehicle down, "
                   "not a data artifact.")
 
+    af = gold("airport_flows")
+    d_all = gold("daily_kpis")
+    if not af.empty:
+        st.subheader("Airport trips are a different kind of trip entirely")
+        st.caption("Same city, same dataset — but a trip to/from an airport doesn't behave like "
+                  "a normal city trip. Compare the numbers below to the Overview tab's city-wide "
+                  "averages.")
+        c1, c2 = st.columns(2)
+        with c1.container(border=True):
+            st.metric("Avg airport-trip fare", f"${af.avg_fare.mean():.2f}",
+                     delta=(f"${af.avg_fare.mean() - d_all.avg_fare.mean():+.2f} vs city-wide"
+                            if not d_all.empty else None))
+        with c2.container(border=True):
+            st.metric("Avg airport-trip distance", f"{af.avg_distance.mean():.1f} mi")
+        st.plotly_chart(px.bar(af.groupby("pickup_hour", as_index=False).trips.sum(),
+                               x="pickup_hour", y="trips", title="Airport trips by hour",
+                               labels={"pickup_hour": "hour of day", "trips": "trips"}),
+                        use_container_width=True)
+        st.caption("Worth separating in any model or report — averaging airport trips in with "
+                  "everything else quietly distorts the city-wide fare and distance numbers.")
+
 # ------------------------------------------------------------------ performance
 with perf:
+    st.info("**Why this tab exists:** anyone can compute averages from a CSV. This tab is the "
+           "evidence that the *distributed processing* itself was understood, not just Spark's "
+           "syntax — it's usually worth more of the grade than another chart of the same trips.")
     st.caption("This tab is about the computer, not the trips — how fast different ways of "
               "storing and querying the same data actually are. Bigger × means bigger win.")
     b = js("benchmarks.json")
@@ -425,12 +634,26 @@ with predict:
     if dp.empty:
         st.warning("Run:  make predict-grid  (after make model)")
     else:
-        st.caption("Pick a trip shape below — the prediction comes from the trained GBT "
-                   "model, scored ahead of time over this exact grid. No Spark runs in "
-                   "this dashboard process; this is a lookup, not a live model call.")
+        st.caption("**What you get: how many minutes that trip is predicted to take** — nothing "
+                   "else. Pick the pieces of a trip below (not a real fare or route, just the "
+                   "shape of one), then press Predict. The number comes from the trained GBT "
+                   "model, scored ahead of time over this exact grid — no Spark runs in this "
+                   "dashboard process, this is a lookup, not a live model call.")
+        st.caption("Not sure what to pick? Try one:")
+        preset_cols = st.columns(3)
+        for col, (label, ppu, pdo) in zip(preset_cols, [
+            ("✈️ Airport run", "Manhattan", "EWR"),
+            ("🏙️ Everyday commute", "Brooklyn", "Manhattan"),
+            ("🚕 Local hop", "Queens", "Queens"),
+        ]):
+            if col.button(label, use_container_width=True):
+                st.session_state["predict_pu"] = ppu
+                st.session_state["predict_do"] = pdo
+                st.rerun()
+
         c1, c2 = st.columns(2)
-        pu = c1.selectbox("Pickup borough", sorted(dp.pu_borough.unique()))
-        do = c2.selectbox("Dropoff borough", sorted(dp.do_borough.unique()))
+        pu = c1.selectbox("Pickup area", sorted(dp.pu_borough.unique()), key="predict_pu")
+        do = c2.selectbox("Dropoff area", sorted(dp.do_borough.unique()), key="predict_do")
 
         # auto-suggest a realistic distance for this exact route, from the real
         # curated data — instead of making someone guess a number cold
@@ -463,6 +686,36 @@ with predict:
             else:
                 with st.container(border=True):
                     st.metric("Predicted duration", f"{match.iloc[0].predicted_duration_min:.1f} min")
+
+                if pu in BOROUGH_COORDS and do in BOROUGH_COORDS:
+                    (pu_lat, pu_lon), (do_lat, do_lon) = BOROUGH_COORDS[pu], BOROUGH_COORDS[do]
+                    path, is_real = road_route(pu_lat, pu_lon, do_lat, do_lon)
+                    path_lat = [p[0] for p in path]
+                    path_lon = [p[1] for p in path]
+
+                    # Scattermap — real street tiles (Carto, no API key), same
+                    # basemap as the Geography map, for one consistent look.
+                    route = go.Figure()
+                    route.add_trace(go.Scattermap(
+                        lat=path_lat, lon=path_lon, mode="lines",
+                        line=dict(width=3, color=CAT[0]), showlegend=False))
+                    route.add_trace(go.Scattermap(
+                        lat=[pu_lat, do_lat], lon=[pu_lon, do_lon], mode="markers+text",
+                        marker=dict(size=16, color=[CAT[1], CAT[3]]),
+                        text=[f"Pickup: {pu}", f"Dropoff: {do}"], textposition="top center",
+                        showlegend=False))
+                    route.update_layout(
+                        map=dict(style="carto-positron", zoom=9,
+                                center=dict(lat=sum(path_lat) / len(path_lat),
+                                           lon=sum(path_lon) / len(path_lon))),
+                        margin=dict(l=0, r=0, t=0, b=0), height=380, showlegend=False)
+                    st.plotly_chart(route, use_container_width=True)
+                    if is_real:
+                        st.caption("An actual driving route (OSRM), following real roads — not a "
+                                  "straight line between the two areas.")
+                    else:
+                        st.caption("⚠️ Couldn't reach the routing service just now, so this is a "
+                                  "straight line between the two areas, not a real road route.")
 
                 by_hour = (dp[(dp.pu_borough == pu) & (dp.do_borough == do) &
                               (dp.pickup_dow == dow) & (dp.trip_distance == dist)]

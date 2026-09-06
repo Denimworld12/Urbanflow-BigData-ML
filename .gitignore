@@ -12,3 +12,4 @@ spark-warehouse/
 metastore_db/
 derby.log
 report/*.pdf
+.env
