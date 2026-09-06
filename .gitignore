@@ -13,3 +13,5 @@ metastore_db/
 derby.log
 report/*.pdf
 .env
+.claude/
+CLAUDE.md

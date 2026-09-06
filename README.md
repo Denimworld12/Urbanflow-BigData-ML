@@ -143,16 +143,4 @@ schema/curated.md      THE CONTRACT between the three of you
   `data/raw/manifest.csv`.
 
 Full gotchas (cash tips never recorded, stray 2001/2098 timestamps, why
-speedup goes sub-linear) live in `CLAUDE.md`.
-
-## Working with Claude Code
-
-This repo ships with `CLAUDE.md` (project rules), seven slash commands and two
-review subagents. See [`docs/CLAUDE-CODE.md`](docs/CLAUDE-CODE.md). Start with:
-
-```
-/status      what exists, what is next
-/curate 1    run curation and interpret the quality report
-/bench       run benchmarks and draft the performance section
-/viva        get examined on your own code
-```
+speedup goes sub-linear) live in `docs/OUTCOMES.md`.
