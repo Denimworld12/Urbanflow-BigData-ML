@@ -8,6 +8,19 @@ Six stages, bronze to dashboard: ingest → curate → gold → model → benchm
 dashboard. See [`docs/OUTCOMES.md`](docs/OUTCOMES.md) for what each stage
 hands in and why it counts as "big data" despite the laptop.
 
+## Screenshots
+
+The dashboard, running against the real 243.5M-row FHVHV gold layer:
+
+| | |
+|---|---|
+| **Predict** — trip duration from a trained model, looked up not scored live | **Explore** — filter trips by area, day type, hour |
+| ![Predict tab](docs/screenshots/predict.png) | ![Explore tab](docs/screenshots/explore.png) |
+| **Overview** — totals across the whole curated dataset | **Geography** — real NYC map, one map many metrics |
+| ![Overview tab](docs/screenshots/overview.png) | ![Geography tab](docs/screenshots/geography.png) |
+| **Behaviour** — tipping patterns, card vs. cash | **Performance** — Spark scaling and format benchmarks |
+| ![Behaviour tab](docs/screenshots/behaviour.png) | ![Performance tab](docs/screenshots/performance.png) |
+
 ## Requirements
 
 * **Java 17, 21 or 25** — Spark 4.2 will not start on 8 or 11. Check with
