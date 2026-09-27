@@ -5,7 +5,8 @@ TIER ?= 0
 DATASET ?= yellow
 
 .PHONY: help setup check synth ingest curate gold model bench dash all clean-data test \
-        monitor-up monitor-down monitor-status monitor-reload monitor-check monitor-dashboards
+        monitor-up monitor-attach monitor-down monitor-status monitor-reload monitor-check \
+        monitor-dashboards
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}'
@@ -56,10 +57,14 @@ clean-data:   ## delete derived layers, keep bronze
 # Watches the Hadoop, HBase and streaming stacks whenever they are running.
 MONITOR := docker compose -p urbanflow-monitoring -f docker-compose.monitoring.yml
 
-monitor-up:   ## start Prometheus :9090 + Grafana :3000 (admin/urbanflow)
+monitor-up:   ## start Prometheus :9090 + Grafana :3000 (admin/urbanflow), attach to running stacks
 	$(MONITOR) up -d
+	@sh scripts/monitor_attach.sh
 	@echo "\nGrafana    http://localhost:$${GRAFANA_PORT:-3000}  (admin / urbanflow)"
 	@echo "Prometheus http://localhost:$${PROMETHEUS_PORT:-9090}/targets"
+
+monitor-attach: ## connect monitoring to a stack started after monitor-up
+	@sh scripts/monitor_attach.sh
 
 monitor-down: ## stop the monitoring stack (keeps its data volumes)
 	$(MONITOR) down

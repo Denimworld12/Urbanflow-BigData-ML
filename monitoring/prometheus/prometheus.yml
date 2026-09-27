@@ -1,8 +1,12 @@
 # Prometheus scrape config for UrbanFlow's big-data stacks.
 #
-# Every non-monitoring target is reached through host.docker.internal on the
-# port that stack publishes on the host. A stack that is not running shows up
-# as a down target (up == 0) in the Overview dashboard; nothing here fails.
+# Each big-data stack runs on its own Docker network with a fixed name
+# (urbanflow-hadoop, urbanflow-hbase-net, urbanflow-streaming). `make
+# monitor-up` connects Prometheus and json-exporter to whichever of those
+# networks exist (scripts/monitor_attach.sh), so targets below are plain
+# service names on the daemons' own ports. A stack that is not running (or
+# was started after monitoring and not attached yet) shows as a down target
+# (up == 0) in the Overview dashboard; nothing here fails.
 # After editing this file: make monitor-reload (no restart needed).
 global:
   scrape_interval: 15s
@@ -45,20 +49,21 @@ scrape_configs:
       - regex: stack|component
         action: labeldrop
 
-  # --- Hadoop core: HDFS + YARN + Hive (docker-compose.hadoop.yml) -----------
+  # --- Hadoop core: HDFS + YARN + MapReduce + Hive (docker-compose.hadoop.yml)
+  # Hadoop daemons serve metrics only as JSON at /jmx.
   - job_name: hadoop
     metrics_path: /probe
     static_configs:
-      - targets: ["http://host.docker.internal:9870/jmx"]
+      - targets: ["http://namenode:9870/jmx"]
         labels: {stack: hadoop, component: namenode, module: namenode}
-      - targets: ["http://host.docker.internal:9864/jmx"]
+      - targets: ["http://datanode:9864/jmx"]
         labels: {stack: hadoop, component: datanode, module: datanode}
-      - targets: ["http://host.docker.internal:8088/jmx"]
+      - targets: ["http://resourcemanager:8088/jmx"]
         labels: {stack: hadoop, component: resourcemanager, module: resourcemanager}
-      - targets: ["http://host.docker.internal:8042/jmx"]
+      - targets: ["http://nodemanager:8042/jmx"]
         labels: {stack: hadoop, component: nodemanager, module: nodemanager}
-      - targets: ["http://host.docker.internal:10002/jmx"]
-        labels: {stack: hadoop, component: hiveserver2, module: hiveserver2}
+      - targets: ["http://historyserver:19888/jmx"]
+        labels: {stack: hadoop, component: historyserver, module: jvm}
     # /jmx is JSON, not Prometheus text, so these scrapes go through
     # json-exporter: the target URL becomes ?target=..., the module comes from
     # the `module` label, and the request itself is sent to json-exporter.
@@ -72,15 +77,27 @@ scrape_configs:
       - target_label: __address__
         replacement: json-exporter:7979
 
+  # The two Hive JVMs run the Prometheus JMX agent on :9404, so Prometheus
+  # scrapes them directly.
+  - job_name: hive
+    static_configs:
+      - targets: ["hiveserver2:9404"]
+        labels: {stack: hadoop, component: hiveserver2}
+      - targets: ["hive-metastore:9404"]
+        labels: {stack: hadoop, component: hive-metastore}
+
   # --- HBase + ZooKeeper (docker-compose.hbase.yml) -------------------------
   - job_name: hbase
     metrics_path: /probe
     static_configs:
-      - targets: ["http://host.docker.internal:16010/jmx"]
+      - targets: ["http://hbase-master:16010/jmx"]
         labels: {stack: hbase, component: hbase-master, module: hbase_master}
-      - targets: ["http://host.docker.internal:16030/jmx"]
+      - targets: ["http://hbase-regionserver:16030/jmx"]
         labels: {stack: hbase, component: hbase-regionserver, module: hbase_regionserver}
-      - targets: ["http://host.docker.internal:8080/commands/mntr"]
+      - targets: ["http://hbase-thrift:9095/jmx"]
+        labels: {stack: hbase, component: hbase-thrift, module: jvm}
+      # ZooKeeper's AdminServer (on by default, container port 8080).
+      - targets: ["http://zookeeper:8080/commands/mntr"]
         labels: {stack: hbase, component: zookeeper, module: zookeeper}
     relabel_configs: *json_relabel
 
@@ -89,5 +106,14 @@ scrape_configs:
   # Prometheus: topic offsets (throughput) and consumer-group lag.
   - job_name: kafka
     static_configs:
-      - targets: ["host.docker.internal:9308"]
+      - targets: ["kafka-exporter:9308"]
         labels: {stack: streaming, component: kafka-exporter}
+
+  # The Spark Structured Streaming job (`make stream-run`) runs on the host,
+  # not in a container, with its UI and Prometheus servlet on :4050. It is
+  # only up while the job is running.
+  - job_name: spark-streaming
+    metrics_path: /metrics/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:4050"]
+        labels: {stack: streaming, component: spark-driver}

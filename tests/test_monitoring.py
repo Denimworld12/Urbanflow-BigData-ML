@@ -68,8 +68,9 @@ def test_every_queried_metric_has_a_source():
     assert {"hdfs_live_datanodes", "yarn_apps_running", "jvm_heap_used_bytes",
             "hbase_master_region_servers", "zookeeper_znodes"} <= known
     # Everything else comes from exporters that name their own metrics.
-    external = ("container_", "kafka_", "up", "ALERTS")
-    keywords = {"sum", "max", "min", "count", "rate", "by", "or", "vector", "label_values"}
+    external = ("container_", "kafka_", "jvm_memory_used_bytes", "up", "ALERTS")
+    keywords = {"sum", "max", "min", "count", "rate", "by", "or", "vector", "label_values",
+                "label_replace"}
     for dash, title, expr in _exprs():
         stripped = re.sub(r"\{[^}]*\}|\[[^]]*\]|\"[^\"]*\"", "", expr)
         for word in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", stripped):

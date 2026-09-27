@@ -3,11 +3,12 @@
 #   make monitor-down
 # Grafana http://localhost:3000 (admin / urbanflow), Prometheus http://localhost:9090.
 #
-# It never joins the other stacks' networks. Every big-data stack publishes its
-# web/metrics ports on the host, and Prometheus scrapes them through
-# host.docker.internal, so this stack starts cleanly whether zero, one or all
-# of the other stacks are running. A stack that is down simply shows as a
-# down target (up == 0) until it starts.
+# `make monitor-up` also runs scripts/monitor_attach.sh, which connects
+# Prometheus and json-exporter to the Hadoop, HBase and streaming stacks'
+# networks (whichever exist), so they scrape those daemons by service name.
+# The networks are not declared `external` here on purpose: that would stop
+# this stack from starting unless every other stack were already up. A stack
+# that is down simply shows as a down target (up == 0).
 name: urbanflow-monitoring
 
 services:
@@ -24,7 +25,7 @@ services:
       - ./monitoring/prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Linux; Docker Desktop provides it already
+      - "host.docker.internal:host-gateway"   # the Spark job runs on the host; Linux needs this line
     restart: unless-stopped
 
   grafana:
@@ -68,7 +69,7 @@ services:
       - /dev/disk/:/dev/disk:ro
     restart: unless-stopped
 
-  # Hadoop, Hive, HBase and ZooKeeper report their metrics as JSON (/jmx and
+  # Hadoop, HBase and ZooKeeper report their metrics as JSON (/jmx and
   # /commands/mntr), not in Prometheus text format. json-exporter fetches that
   # JSON on each scrape and converts the fields we care about into Prometheus
   # metrics, so those stacks need no config change and no agent jar.
@@ -77,8 +78,6 @@ services:
     command: ["--config.file=/config/config.yml"]
     volumes:
       - ./monitoring/json-exporter:/config:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:

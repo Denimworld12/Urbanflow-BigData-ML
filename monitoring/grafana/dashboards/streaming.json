@@ -1,7 +1,7 @@
 {
   "uid": "urbanflow-streaming",
   "title": "UrbanFlow: Kafka + Spark Streaming",
-  "description": "Kafka throughput and consumer lag from kafka-exporter, plus per-container CPU / memory for the streaming stack.",
+  "description": "Kafka throughput and consumer lag from kafka-exporter, the Spark job's own streaming metrics, and CPU / memory of the Kafka containers.",
   "tags": [
     "urbanflow"
   ],
@@ -133,7 +133,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "kafka_brokers",
+          "expr": "max(kafka_brokers)",
           "refId": "A",
           "legendFormat": "__auto"
         }
@@ -659,7 +659,7 @@
     },
     {
       "type": "row",
-      "title": "Containers",
+      "title": "Spark Structured Streaming (make stream-run)",
       "collapsed": false,
       "panels": [],
       "gridPos": {
@@ -669,6 +669,454 @@
         "h": 1
       },
       "id": 12
+    },
+    {
+      "type": "stat",
+      "title": "Spark driver",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(up{stack=\"streaming\", component=\"spark-driver\"})",
+          "refId": "A",
+          "legendFormat": "__auto"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "noValue": "stack not running",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 4,
+        "h": 4
+      },
+      "id": 13
+    },
+    {
+      "type": "stat",
+      "title": "Input rows / s",
+      "description": "Rows per second arriving from Kafka, all queries.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(label_replace({__name__=~\"metrics_.*_spark_streaming_(.+)_inputRate_total_Value\"}, \"query\", \"$1\", \"__name__\", \"metrics_.*_spark_streaming_(.+)_inputRate_total_Value\"))",
+          "refId": "A",
+          "legendFormat": "__auto"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "noValue": "stack not running",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 22,
+        "w": 5,
+        "h": 4
+      },
+      "id": 14
+    },
+    {
+      "type": "stat",
+      "title": "Processed rows / s",
+      "description": "Rows per second Spark finished. Below the input rate for long = falling behind.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(label_replace({__name__=~\"metrics_.*_spark_streaming_(.+)_processingRate_total_Value\"}, \"query\", \"$1\", \"__name__\", \"metrics_.*_spark_streaming_(.+)_processingRate_total_Value\"))",
+          "refId": "A",
+          "legendFormat": "__auto"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "noValue": "stack not running",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 22,
+        "w": 5,
+        "h": 4
+      },
+      "id": 15
+    },
+    {
+      "type": "stat",
+      "title": "Micro-batch latency",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(label_replace({__name__=~\"metrics_.*_spark_streaming_(.+)_latency_Value\"}, \"query\", \"$1\", \"__name__\", \"metrics_.*_spark_streaming_(.+)_latency_Value\"))",
+          "refId": "A",
+          "legendFormat": "__auto"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "mappings": [],
+          "noValue": "stack not running",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 22,
+        "w": 5,
+        "h": 4
+      },
+      "id": 16
+    },
+    {
+      "type": "stat",
+      "title": "State rows",
+      "description": "Open windows Spark keeps in its state store until the watermark passes them.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(label_replace({__name__=~\"metrics_.*_spark_streaming_(.+)_states_rowsTotal_Value\"}, \"query\", \"$1\", \"__name__\", \"metrics_.*_spark_streaming_(.+)_states_rowsTotal_Value\"))",
+          "refId": "A",
+          "legendFormat": "__auto"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "noValue": "stack not running",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "x": 19,
+        "y": 22,
+        "w": 5,
+        "h": 4
+      },
+      "id": 17
+    },
+    {
+      "type": "timeseries",
+      "title": "Input vs. processed rows / s per query",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "label_replace({__name__=~\"metrics_.*_spark_streaming_(.+)_inputRate_total_Value\"}, \"query\", \"$1\", \"__name__\", \"metrics_.*_spark_streaming_(.+)_inputRate_total_Value\")",
+          "refId": "A",
+          "legendFormat": "{{query}} input"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "label_replace({__name__=~\"metrics_.*_spark_streaming_(.+)_processingRate_total_Value\"}, \"query\", \"$1\", \"__name__\", \"metrics_.*_spark_streaming_(.+)_processingRate_total_Value\")",
+          "refId": "B",
+          "legendFormat": "{{query}} processed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "stack not running",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "id": 18
+    },
+    {
+      "type": "timeseries",
+      "title": "Micro-batch latency per query",
+      "description": "Wall-clock time of the last micro-batch.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "label_replace({__name__=~\"metrics_.*_spark_streaming_(.+)_latency_Value\"}, \"query\", \"$1\", \"__name__\", \"metrics_.*_spark_streaming_(.+)_latency_Value\")",
+          "refId": "A",
+          "legendFormat": "{{query}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "stack not running",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "id": 19
+    },
+    {
+      "type": "row",
+      "title": "Containers",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 24,
+        "h": 1
+      },
+      "id": 20
     },
     {
       "type": "timeseries",
@@ -723,11 +1171,11 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 35,
         "w": 12,
         "h": 8
       },
-      "id": 13
+      "id": 21
     },
     {
       "type": "timeseries",
@@ -782,11 +1230,11 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 22,
+        "y": 35,
         "w": 12,
         "h": 8
       },
-      "id": 14
+      "id": 22
     }
   ],
   "annotations": {

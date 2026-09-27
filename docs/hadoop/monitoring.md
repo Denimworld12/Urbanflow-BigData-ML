@@ -26,8 +26,10 @@ make monitor-down      # stop it (data volumes are kept)
 Port clash? `GRAFANA_PORT=3300 PROMETHEUS_PORT=9095 make monitor-up`
 (also pass them to `make monitor-status` / `monitor-reload`).
 
-Start it before or after the other stacks, in any order. A stack that is not
-running just shows as DOWN until it starts; nothing has to be restarted.
+Start it before or after the other stacks. A stack that is not running just
+shows as DOWN. If you start a stack *after* monitoring, run `make
+monitor-attach` (or `make monitor-up` again; both are safe to repeat) so
+Prometheus joins that stack's network.
 
 ## Components
 
@@ -36,53 +38,79 @@ running just shows as DOWN until it starts; nothing has to be restarted.
 | **Prometheus** | A time-series database that *pulls* ("scrapes") metrics over HTTP from every target every 15 s, stores them, and answers queries in PromQL. Also evaluates alert rules. | One store for the health numbers of every stack, with history, so we can show what happened during a job, not just "now". |
 | **Grafana** | A dashboard web app. It holds no data; every panel is a PromQL query sent to Prometheus. | The visual we present. Its datasource and dashboards are provisioned from files in the repo, so it works on first start with no clicking. |
 | **cAdvisor** | Google's container monitor. Reads each container's cgroup counters from the Docker host. | Per-container CPU, memory and network for every stack, including daemons that have no metrics of their own. |
-| **json-exporter** | Fetches a JSON document on each scrape and turns chosen fields into Prometheus metrics. | Hadoop, Hive and HBase publish metrics as JSON at `/jmx`, and ZooKeeper at `/commands/mntr`. This reads them with no change to those stacks and no Java agent. |
-| **kafka-exporter** | Connects to Kafka as a client and exposes topic offsets and consumer-group lag. | Kafka throughput and lag. It ships with the streaming stack (`docker-compose.streaming.yml`), which is where it can reach the broker; Prometheus scrapes it on port 9308. |
+| **json-exporter** | Fetches a JSON document on each scrape and turns chosen fields into Prometheus metrics. | Hadoop and HBase daemons publish metrics as JSON at `/jmx`, and ZooKeeper at `/commands/mntr`. This reads them with no change to those stacks and no Java agent. |
+| **kafka-exporter** | Connects to Kafka as a client and exposes topic offsets and consumer-group lag. | Kafka throughput and lag. It ships with the streaming stack (`docker-compose.streaming.yml`); Prometheus scrapes it on port 9308. |
+
+Two sources already speak Prometheus, so they are scraped directly: the Hive
+Metastore and HiveServer2 run the Prometheus JMX agent on port 9404 (set up
+by the Hadoop stack), and the Spark streaming job serves
+`/metrics/prometheus` on its UI port 4050.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph hadoop["Hadoop stack"]
-    NN["NameNode :9870/jmx"]
-    DN["DataNode :9864/jmx"]
-    RM["ResourceManager :8088/jmx"]
-    NM["NodeManager :8042/jmx"]
-    HS2["HiveServer2 :10002/jmx"]
+  subgraph hadoop["Hadoop stack · network urbanflow-hadoop"]
+    NN["namenode :9870/jmx"]
+    DN["datanode :9864/jmx"]
+    RM["resourcemanager :8088/jmx"]
+    NM["nodemanager :8042/jmx"]
+    HS["historyserver :19888/jmx"]
+    HIVE["hiveserver2, hive-metastore :9404/metrics"]
   end
-  subgraph hbase["HBase stack"]
-    HM["HBase Master :16010/jmx"]
-    RS["RegionServer :16030/jmx"]
-    ZK["ZooKeeper :8080/commands/mntr"]
+  subgraph hbase["HBase stack · network urbanflow-hbase-net"]
+    HM["hbase-master :16010/jmx"]
+    RS["hbase-regionserver :16030/jmx"]
+    TH["hbase-thrift :9095/jmx"]
+    ZK["zookeeper :8080/commands/mntr"]
   end
-  subgraph streaming["Streaming stack"]
-    K["Kafka broker"] --> KE["kafka-exporter :9308"]
+  subgraph streaming["Streaming stack · network urbanflow-streaming"]
+    K["kafka"] --> KE["kafka-exporter :9308"]
   end
+  SPARK["Spark streaming job on the host :4050/metrics/prometheus"]
   subgraph mon["Monitoring stack (docker-compose.monitoring.yml)"]
     JE["json-exporter"]
     CA["cAdvisor"]
     P[("Prometheus :9090")]
     G["Grafana :3000"]
   end
-  NN & DN & RM & NM & HS2 & HM & RS & ZK -- "JSON" --> JE
+  NN & DN & RM & NM & HS & HM & RS & TH & ZK -- "JSON" --> JE
   JE -- "metrics" --> P
-  KE -- "metrics" --> P
+  HIVE & KE -- "metrics" --> P
+  SPARK -- "host.docker.internal" --> P
   CA -- "every container's CPU / memory" --> P
   P -- "PromQL" --> G
 ```
 
 **How a scrape reaches another stack.** Each stack is its own compose project
-with its own Docker network, and the monitoring stack deliberately joins none
-of them. Every stack already publishes its web UI ports on the host (that is
-how you open the NameNode UI at localhost:9870), so Prometheus and
-json-exporter reach them at `host.docker.internal:<port>`. That is what lets
-monitoring start whether zero, one or all stacks are up: if a network were
-declared `external`, compose would refuse to start until that stack existed.
+on its own Docker network, and each gives that network a fixed name
+(`urbanflow-hadoop`, `urbanflow-hbase-net`, `urbanflow-streaming`) so that
+monitoring can join it. `make monitor-up` starts the monitoring containers
+and then runs `scripts/monitor_attach.sh`, which does `docker network
+connect` for Prometheus and json-exporter on each of those networks that
+exists. After that, targets are plain service names on the daemons' own
+ports (`namenode:9870`), exactly as the daemons talk to each other. That
+also reaches daemons that publish nothing on the host, such as the DataNode
+and NodeManager.
+
+Why not list those networks in `docker-compose.monitoring.yml` as
+`external`? Because then compose refuses to start monitoring unless every
+stack is already running. Attaching afterwards keeps monitoring startable on
+its own, in any order.
+
+One side effect: while monitoring is attached, `docker compose down` on
+another stack prints `Network ... Resource is still in use` and leaves that
+network behind. That is harmless (the command still succeeds, and the next
+`up` of that stack reuses the network, still attached); `make monitor-down`
+releases it.
+
+The Spark job is the exception: it runs on the host from the project venv,
+not in a container, so Prometheus reaches it at `host.docker.internal:4050`.
 
 **How the JSON gets in.** For a `/jmx` target, Prometheus does not call the
 daemon directly. The relabel rules in `monitoring/prometheus/prometheus.yml`
 turn the target into a request to
-`json-exporter:7979/probe?module=namenode&target=http://host.docker.internal:9870/jmx`.
+`json-exporter:7979/probe?module=namenode&target=http://namenode:9870/jmx`.
 json-exporter downloads the JMX JSON, applies the JSONPath expressions of
 that module (`monitoring/json-exporter/config.yml`), and answers with plain
 Prometheus metrics such as `hdfs_live_datanodes 1`. If the daemon is down,
@@ -113,9 +141,9 @@ from the top-right menu.
 | Dashboard | Panels |
 |---|---|
 | **Overview** | Targets up / expected per stack; a table of every endpoint (UP/DOWN); containers running, total CPU and memory; firing alerts; CPU, memory and network per container. |
-| **Hadoop** | Each daemon UP/DOWN; live DataNodes; HDFS used %, capacity, files, blocks, under-replicated and missing blocks; YARN active NodeManagers, apps running / pending / completed / failed, memory allocated vs. available, running containers; JVM heap per daemon. |
-| **HBase + ZooKeeper** | Master / RegionServer / ZooKeeper UP/DOWN; live and dead RegionServers; regions in transition; regions, store files, data size, MemStore; reads and writes per second; ZooKeeper znodes, connections, latency; JVM heap. |
-| **Kafka + Spark Streaming** | Brokers; messages per second per topic; messages retained; consumer lag per group and topic; consumer progress; CPU and memory of the streaming containers (Kafka broker, producer, Spark job). |
+| **Hadoop** | NameNode, DataNode, ResourceManager, NodeManager, JobHistory, HiveServer2 and Hive Metastore UP/DOWN; live DataNodes; HDFS used %, capacity, files, blocks, under-replicated and missing blocks; YARN active NodeManagers, apps running / pending / completed / failed, memory allocated vs. available, running containers; JVM heap per daemon. |
+| **HBase + ZooKeeper** | Master / RegionServer / Thrift gateway / ZooKeeper UP/DOWN; live and dead RegionServers; regions in transition; regions, store files, data size, MemStore; reads and writes per second; ZooKeeper znodes, connections, latency; JVM heap. |
+| **Kafka + Spark Streaming** | Brokers; messages per second per topic; messages retained; consumer lag per group and topic; consumer progress; Spark driver UP/DOWN, input vs. processed rows per second and micro-batch latency per streaming query, state-store rows; CPU and memory of the Kafka containers. |
 
 The dashboard JSON is generated: edit `scripts/build_dashboards.py`, then run
 `make monitor-dashboards`. `make test` fails if the two drift apart, and also
@@ -185,10 +213,24 @@ the Kafka throughput and HBase requests-per-second panels are drawn.
 * cAdvisor needs `privileged` and read-only mounts of the Docker host's
   `/sys`, `/var/lib/docker` and the containerd socket; on Docker Desktop's
   containerd image store it cannot name containers without that socket.
-* Spark Structured Streaming keeps its Kafka offsets in its own checkpoint
-  and does not commit them to a Kafka consumer group, so kafka-exporter
-  cannot compute its lag. The streaming dashboard shows Spark's progress
-  through the output topic's throughput and the job container's CPU / memory
-  instead.
-* ZooKeeper's `/commands/mntr` is served by its AdminServer (port 8080 in the
-  container). It is only scraped if the HBase stack publishes that port.
+* Spark Structured Streaming keeps its Kafka position in its checkpoint, not
+  in a Kafka consumer group. The streaming job mirrors each query's
+  processed offsets to a group named `urbanflow-<query>` precisely so
+  kafka-exporter can show its lag; the checkpoint stays the source of truth.
+* The Spark job runs on the host, so cAdvisor (which sees containers) has no
+  CPU / memory row for it; its own metrics come from `/metrics/prometheus`,
+  and only while `make stream-run` is running.
+* ZooKeeper's `/commands/mntr` is served by its AdminServer on container
+  port 8080, which ZooKeeper enables by default. It is reachable only from
+  inside the HBase network, which is why monitoring attaches to it.
+
+## Screenshots
+
+Taken with the Hadoop, HBase and streaming stacks running on one laptop.
+
+| | |
+|---|---|
+| **Overview** | **Hadoop** |
+| ![Overview dashboard](../screenshots/monitoring-overview.png) | ![Hadoop dashboard](../screenshots/monitoring-hadoop.png) |
+| **HBase + ZooKeeper** | **Kafka + Spark Streaming** |
+| ![HBase dashboard](../screenshots/monitoring-hbase.png) | ![Streaming dashboard](../screenshots/monitoring-streaming.png) |

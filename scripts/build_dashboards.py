@@ -12,6 +12,7 @@ is out of date with this file.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "monitoring" / "grafana" / "dashboards"
@@ -45,6 +46,9 @@ def _targets(queries) -> list[dict]:
 
 def stat(title, queries, unit="short", w=4, h=4, mappings=None, thresholds=None,
          desc="", text_mode="auto", color_mode="value"):
+    if isinstance(queries, str) and re.fullmatch(r"[a-z_]+", queries):
+        # One number per panel, even if a relabel briefly leaves two series.
+        queries = f"max({queries})"
     return {
         "type": "stat", "title": title, "description": desc, "datasource": DS,
         "_w": w, "_h": h, "targets": _targets(queries),
@@ -116,9 +120,24 @@ def containers(project_regex: str) -> list[dict]:
 
 
 def jvm_heap(stack: str) -> dict:
+    # Hadoop/HBase heap comes from /jmx via json-exporter; the Hive JVMs run
+    # the Prometheus JMX agent, which names the same number differently.
     return timeseries("JVM heap used per daemon",
-                      [(f'jvm_heap_used_bytes{{stack="{stack}"}}', "{{component}}")],
-                      unit="bytes", desc="java.lang:type=Memory HeapMemoryUsage.used from /jmx.")
+                      [(f'max by (component) (jvm_heap_used_bytes{{stack="{stack}"}}) or '
+                        f'sum by (component) (jvm_memory_used_bytes{{stack="{stack}", area="heap"}})',
+                        "{{component}}")],
+                      unit="bytes", desc="Heap memory in use inside each daemon's JVM.")
+
+
+def spark_stream(metric: str) -> str:
+    """One Spark streaming gauge for every query, labelled by query name.
+
+    Spark's PrometheusServlet puts the query name inside the metric name
+    (metrics_<namespace>_driver_spark_streaming_<query>_<metric>_Value), so
+    select by name pattern and pull the query name out with label_replace.
+    """
+    pattern = f"metrics_.*_spark_streaming_(.+)_{metric}_Value"
+    return (f'label_replace({{__name__=~"{pattern}"}}, "query", "$1", "__name__", "{pattern}")')
 
 
 def up_stats(stack: str, components: list[tuple[str, str]], w: int = 4) -> list[dict]:
@@ -215,21 +234,23 @@ def hadoop() -> dict:
         *up_stats("hadoop", [("namenode", "HDFS NameNode"), ("datanode", "HDFS DataNode"),
                              ("resourcemanager", "YARN ResourceManager"),
                              ("nodemanager", "YARN NodeManager"),
-                             ("hiveserver2", "HiveServer2")], w=4),
-        stat("Live DataNodes", "hdfs_live_datanodes", w=4,
-             thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 1}]),
+                             ("historyserver", "MR JobHistory"),
+                             ("hiveserver2", "HiveServer2"),
+                             ("hive-metastore", "Hive Metastore")], w=3),
         row("HDFS"),
-        stat("HDFS used", "hdfs_capacity_used_bytes / hdfs_capacity_total_bytes",
-             unit="percentunit", w=4,
+        stat("Live DataNodes", "hdfs_live_datanodes", w=3,
+             thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 1}]),
+        stat("HDFS used", "max(hdfs_capacity_used_bytes) / max(hdfs_capacity_total_bytes)",
+             unit="percentunit", w=3,
              thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 0.7},
                          {"color": "red", "value": 0.85}]),
-        stat("Capacity", "hdfs_capacity_total_bytes", unit="bytes", w=4),
-        stat("Files + directories", "hdfs_files_total", w=4),
-        stat("Blocks", "hdfs_blocks_total", w=4),
-        stat("Under-replicated blocks", "hdfs_under_replicated_blocks", w=4,
+        stat("Capacity", "hdfs_capacity_total_bytes", unit="bytes", w=3),
+        stat("Files + directories", "hdfs_files_total", w=3),
+        stat("Blocks", "hdfs_blocks_total", w=3),
+        stat("Under-replicated blocks", "hdfs_under_replicated_blocks", w=3,
              desc="Expected > 0 on a one-DataNode cluster when replication > 1.",
              thresholds=[{"color": "green", "value": None}, {"color": "orange", "value": 1}]),
-        stat("Missing blocks", "hdfs_missing_blocks", w=4,
+        stat("Missing blocks", "hdfs_missing_blocks", w=3,
              thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}]),
         timeseries("HDFS capacity", [("hdfs_capacity_used_bytes", "used"),
                                      ("hdfs_capacity_remaining_bytes", "remaining")],
@@ -266,12 +287,14 @@ def hbase() -> dict:
         row("Daemons"),
         *up_stats("hbase", [("hbase-master", "HBase Master"),
                             ("hbase-regionserver", "RegionServer"),
+                            ("hbase-thrift", "Thrift gateway"),
                             ("zookeeper", "ZooKeeper")], w=4),
         stat("Live RegionServers", "hbase_master_region_servers", w=4,
              thresholds=[{"color": "red", "value": None}, {"color": "green", "value": 1}]),
         stat("Dead RegionServers", "hbase_master_dead_region_servers", w=4,
              thresholds=[{"color": "green", "value": None}, {"color": "red", "value": 1}]),
-        stat("Regions in transition", "hbase_master_regions_in_transition", w=4),
+        stat("Regions in transition", "hbase_master_regions_in_transition", w=4,
+             desc="Regions being opened, closed or moved. Stuck > 0 means a problem."),
         row("Tables and requests"),
         stat("Regions", "max(hbase_regionserver_regions)", w=4),
         stat("Store files", "max(hbase_regionserver_store_files)", w=4),
@@ -334,12 +357,26 @@ def streaming() -> dict:
         timeseries("Consumer progress per group (messages / s)",
                    [("sum by (consumergroup, topic) (rate(kafka_consumergroup_current_offset[1m]))",
                      "{{consumergroup}} on {{topic}}")]),
+        row("Spark Structured Streaming (make stream-run)"),
+        *up_stats("streaming", [("spark-driver", "Spark driver")], w=4),
+        stat("Input rows / s", f"sum({spark_stream('inputRate_total')})", w=5,
+             desc="Rows per second arriving from Kafka, all queries."),
+        stat("Processed rows / s", f"sum({spark_stream('processingRate_total')})", w=5,
+             desc="Rows per second Spark finished. Below the input rate for long = falling behind."),
+        stat("Micro-batch latency", f"max({spark_stream('latency')})", unit="ms", w=5),
+        stat("State rows", f"sum({spark_stream('states_rowsTotal')})", w=5,
+             desc="Open windows Spark keeps in its state store until the watermark passes them."),
+        timeseries("Input vs. processed rows / s per query",
+                   [(spark_stream("inputRate_total"), "{{query}} input"),
+                    (spark_stream("processingRate_total"), "{{query}} processed")]),
+        timeseries("Micro-batch latency per query", [(spark_stream("latency"), "{{query}}")],
+                   unit="ms", desc="Wall-clock time of the last micro-batch."),
         row("Containers"),
         *containers(PROJECTS["streaming"]),
     ]
     return dashboard("urbanflow-streaming", "UrbanFlow: Kafka + Spark Streaming",
-                     "Kafka throughput and consumer lag from kafka-exporter, plus "
-                     "per-container CPU / memory for the streaming stack.", panels)
+                     "Kafka throughput and consumer lag from kafka-exporter, the Spark "
+                     "job's own streaming metrics, and CPU / memory of the Kafka containers.", panels)
 
 
 DASHBOARDS = {"overview": overview, "hadoop": hadoop, "hbase": hbase, "streaming": streaming}

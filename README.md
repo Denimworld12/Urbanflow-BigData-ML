@@ -102,14 +102,17 @@ ZooKeeper publish (`/jmx`, `/commands/mntr`) into Prometheus metrics.
 Kafka and the Spark streaming job are up and what they are doing, with
 history, instead of one web UI per daemon.
 
+![Hadoop dashboard](docs/screenshots/monitoring-hadoop.png)
+
 ```bash
 make monitor-up       # Grafana http://localhost:3000, Prometheus http://localhost:9090
 make monitor-status   # every scrape target: up or down
 make monitor-down
 ```
 
-Start it in any order with the other stacks: a stack that is not running just
-shows as DOWN until it starts. Grafana opens on the Overview dashboard (no
+It joins the other stacks' Docker networks when it starts, so bring those
+up first, or run `make monitor-attach` after starting one later; a stack that
+is not running just shows as DOWN. Grafana opens on the Overview dashboard (no
 login to view; `admin` / `urbanflow` to edit), with Hadoop, HBase and
 streaming dashboards in the UrbanFlow folder. How it works and what to say
 in the viva: [`docs/hadoop/monitoring.md`](docs/hadoop/monitoring.md).

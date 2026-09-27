@@ -2,7 +2,7 @@
 #   http://json-exporter:7979/probe?module=<module>&target=<daemon JSON URL>
 # and each module below picks fields out of that daemon's JSON with JSONPath.
 #
-# Hadoop, Hive and HBase all serve the same /jmx servlet: a JSON document
+# Hadoop and HBase daemons all serve the same /jmx servlet: a JSON document
 # {"beans": [ {"name": "<JMX bean name>", <attribute>: <value>, ...}, ... ]}.
 # The filters select one bean by its exact JMX name.
 modules:
@@ -94,10 +94,9 @@ modules:
           available_gb: '{.AvailableGB}'
       - *jvm_heap
 
-  # --- HiveServer2 (web UI :10002/jmx) --------------------------------------
-  # Only JVM heap: HiveServer2 publishes its own counters through a separate
-  # metrics system that is off by default, and liveness comes from `up`.
-  hiveserver2:
+  # --- any other Hadoop-family JVM: JobHistory server, HBase Thrift --------
+  # Liveness comes from `up`; this adds heap so a leak is visible.
+  jvm:
     metrics:
       - *jvm_heap
 
@@ -139,11 +138,12 @@ modules:
       - *jvm_heap
 
   # --- ZooKeeper (AdminServer :8080/commands/mntr) --------------------------
+  # The same numbers as the `mntr` four-letter word, served as flat JSON.
   zookeeper:
     metrics:
       - name: zookeeper
         type: object
-        help: ZooKeeper mntr four-letter-word output
+        help: ZooKeeper mntr output
         path: '{@}'
         values:
           znodes: '{.znode_count}'

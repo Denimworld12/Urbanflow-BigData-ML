@@ -197,6 +197,82 @@
     },
     {
       "type": "stat",
+      "title": "Thrift gateway",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(up{stack=\"hbase\", component=\"hbase-thrift\"})",
+          "refId": "A",
+          "legendFormat": "__auto"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "noValue": "stack not running",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
       "title": "ZooKeeper",
       "description": "",
       "datasource": {
@@ -264,12 +340,12 @@
         "orientation": "auto"
       },
       "gridPos": {
-        "x": 8,
+        "x": 12,
         "y": 1,
         "w": 4,
         "h": 4
       },
-      "id": 4
+      "id": 5
     },
     {
       "type": "stat",
@@ -285,7 +361,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "hbase_master_region_servers",
+          "expr": "max(hbase_master_region_servers)",
           "refId": "A",
           "legendFormat": "__auto"
         }
@@ -304,68 +380,6 @@
               },
               {
                 "color": "green",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "auto",
-        "justifyMode": "auto",
-        "orientation": "auto"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "id": 5
-    },
-    {
-      "type": "stat",
-      "title": "Dead RegionServers",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "hbase_master_dead_region_servers",
-          "refId": "A",
-          "legendFormat": "__auto"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "mappings": [],
-          "noValue": "stack not running",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
                 "value": 1
               }
             ]
@@ -397,7 +411,7 @@
     },
     {
       "type": "stat",
-      "title": "Regions in transition",
+      "title": "Dead RegionServers",
       "description": "",
       "datasource": {
         "type": "prometheus",
@@ -409,7 +423,69 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "hbase_master_regions_in_transition",
+          "expr": "max(hbase_master_dead_region_servers)",
+          "refId": "A",
+          "legendFormat": "__auto"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "noValue": "stack not running",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 7
+    },
+    {
+      "type": "stat",
+      "title": "Regions in transition",
+      "description": "Regions being opened, closed or moved. Stuck > 0 means a problem.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(hbase_master_regions_in_transition)",
           "refId": "A",
           "legendFormat": "__auto"
         }
@@ -446,12 +522,12 @@
         "orientation": "auto"
       },
       "gridPos": {
-        "x": 20,
-        "y": 1,
+        "x": 0,
+        "y": 5,
         "w": 4,
         "h": 4
       },
-      "id": 7
+      "id": 8
     },
     {
       "type": "row",
@@ -460,11 +536,11 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 9,
         "w": 24,
         "h": 1
       },
-      "id": 8
+      "id": 9
     },
     {
       "type": "stat",
@@ -518,11 +594,11 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 10,
         "w": 4,
         "h": 4
       },
-      "id": 9
+      "id": 10
     },
     {
       "type": "stat",
@@ -576,11 +652,11 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 6,
+        "y": 10,
         "w": 4,
         "h": 4
       },
-      "id": 10
+      "id": 11
     },
     {
       "type": "stat",
@@ -634,11 +710,11 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 6,
+        "y": 10,
         "w": 4,
         "h": 4
       },
-      "id": 11
+      "id": 12
     },
     {
       "type": "stat",
@@ -692,11 +768,11 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 6,
+        "y": 10,
         "w": 4,
         "h": 4
       },
-      "id": 12
+      "id": 13
     },
     {
       "type": "stat",
@@ -750,11 +826,11 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 6,
+        "y": 10,
         "w": 4,
         "h": 4
       },
-      "id": 13
+      "id": 14
     },
     {
       "type": "stat",
@@ -808,11 +884,11 @@
       },
       "gridPos": {
         "x": 20,
-        "y": 6,
+        "y": 10,
         "w": 4,
         "h": 4
       },
-      "id": 14
+      "id": 15
     },
     {
       "type": "timeseries",
@@ -876,11 +952,11 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 10,
+        "y": 14,
         "w": 12,
         "h": 8
       },
-      "id": 15
+      "id": 16
     },
     {
       "type": "timeseries",
@@ -944,11 +1020,11 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 10,
+        "y": 14,
         "w": 12,
         "h": 8
       },
-      "id": 16
+      "id": 17
     },
     {
       "type": "row",
@@ -957,11 +1033,11 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 22,
         "w": 24,
         "h": 1
       },
-      "id": 17
+      "id": 18
     },
     {
       "type": "stat",
@@ -977,7 +1053,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "zookeeper_znodes",
+          "expr": "max(zookeeper_znodes)",
           "refId": "A",
           "legendFormat": "__auto"
         }
@@ -1015,11 +1091,11 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 23,
         "w": 6,
         "h": 4
       },
-      "id": 18
+      "id": 19
     },
     {
       "type": "stat",
@@ -1035,7 +1111,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "zookeeper_alive_connections",
+          "expr": "max(zookeeper_alive_connections)",
           "refId": "A",
           "legendFormat": "__auto"
         }
@@ -1073,11 +1149,11 @@
       },
       "gridPos": {
         "x": 6,
-        "y": 19,
+        "y": 23,
         "w": 6,
         "h": 4
       },
-      "id": 19
+      "id": 20
     },
     {
       "type": "stat",
@@ -1093,7 +1169,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "zookeeper_outstanding_requests",
+          "expr": "max(zookeeper_outstanding_requests)",
           "refId": "A",
           "legendFormat": "__auto"
         }
@@ -1131,11 +1207,11 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 19,
+        "y": 23,
         "w": 6,
         "h": 4
       },
-      "id": 20
+      "id": 21
     },
     {
       "type": "stat",
@@ -1151,7 +1227,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "zookeeper_avg_latency_ms",
+          "expr": "max(zookeeper_avg_latency_ms)",
           "refId": "A",
           "legendFormat": "__auto"
         }
@@ -1189,11 +1265,11 @@
       },
       "gridPos": {
         "x": 18,
-        "y": 19,
+        "y": 23,
         "w": 6,
         "h": 4
       },
-      "id": 21
+      "id": 22
     },
     {
       "type": "row",
@@ -1202,16 +1278,16 @@
       "panels": [],
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 27,
         "w": 24,
         "h": 1
       },
-      "id": 22
+      "id": 23
     },
     {
       "type": "timeseries",
       "title": "JVM heap used per daemon",
-      "description": "java.lang:type=Memory HeapMemoryUsage.used from /jmx.",
+      "description": "Heap memory in use inside each daemon's JVM.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -1222,7 +1298,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "jvm_heap_used_bytes{stack=\"hbase\"}",
+          "expr": "max by (component) (jvm_heap_used_bytes{stack=\"hbase\"}) or sum by (component) (jvm_memory_used_bytes{stack=\"hbase\", area=\"heap\"})",
           "refId": "A",
           "legendFormat": "{{component}}"
         }
@@ -1261,11 +1337,11 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 24,
+        "y": 28,
         "w": 12,
         "h": 8
       },
-      "id": 23
+      "id": 24
     },
     {
       "type": "timeseries",
@@ -1320,11 +1396,11 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 24,
+        "y": 28,
         "w": 12,
         "h": 8
       },
-      "id": 24
+      "id": 25
     }
   ],
   "annotations": {
