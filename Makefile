@@ -4,7 +4,7 @@ PY := .venv/bin/python
 TIER ?= 0
 DATASET ?= yellow
 
-.PHONY: help setup check synth ingest curate gold model bench dash all clean-data test
+.PHONY: help setup check synth ingest curate gold model predict-grid bench dash all clean-data test
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}'
@@ -46,7 +46,7 @@ dash:         ## launch the dashboard
 test:         ## run unit tests (no network, no big data)
 	PYTHONPATH=src .venv/bin/pytest -q tests/
 
-all: synth curate gold model bench  ## full pipeline on synthetic data
+all: synth curate gold model predict-grid bench  ## full pipeline on synthetic data
 
 clean-data:   ## delete derived layers, keep bronze
 	rm -rf data/curated data/gold data/bench data/models data/spill
