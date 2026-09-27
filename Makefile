@@ -4,7 +4,8 @@ PY := .venv/bin/python
 TIER ?= 0
 DATASET ?= yellow
 
-.PHONY: help setup check synth ingest curate gold model bench dash all clean-data test
+.PHONY: help setup check synth ingest curate gold model bench dash all clean-data test \
+        monitor-up monitor-down monitor-status monitor-reload monitor-check monitor-dashboards
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}'
@@ -50,3 +51,28 @@ all: synth curate gold model bench  ## full pipeline on synthetic data
 
 clean-data:   ## delete derived layers, keep bronze
 	rm -rf data/curated data/gold data/bench data/models data/spill
+
+# --- Monitoring (opt-in): Prometheus + Grafana + cAdvisor + json-exporter ---
+# Watches the Hadoop, HBase and streaming stacks whenever they are running.
+MONITOR := docker compose -p urbanflow-monitoring -f docker-compose.monitoring.yml
+
+monitor-up:   ## start Prometheus :9090 + Grafana :3000 (admin/urbanflow)
+	$(MONITOR) up -d
+	@echo "\nGrafana    http://localhost:$${GRAFANA_PORT:-3000}  (admin / urbanflow)"
+	@echo "Prometheus http://localhost:$${PROMETHEUS_PORT:-9090}/targets"
+
+monitor-down: ## stop the monitoring stack (keeps its data volumes)
+	$(MONITOR) down
+
+monitor-status: ## list every scrape target and whether it is up
+	@curl -fsS "http://localhost:$${PROMETHEUS_PORT:-9090}/api/v1/targets?state=active" | python3 scripts/monitor_status.py
+
+monitor-reload: ## make Prometheus re-read prometheus.yml / alerts.yml
+	curl -fsS -X POST "http://localhost:$${PROMETHEUS_PORT:-9090}/-/reload" && echo reloaded
+
+monitor-check: ## validate the Prometheus config and alert rules with promtool
+	docker run --rm --entrypoint promtool -v "$(CURDIR)/monitoring/prometheus:/p:ro" \
+	    prom/prometheus:v3.5.0 check config /p/prometheus.yml
+
+monitor-dashboards: ## regenerate the Grafana dashboard JSON
+	python3 scripts/build_dashboards.py

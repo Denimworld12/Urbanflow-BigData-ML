@@ -1,0 +1,86 @@
+# Opt-in monitoring stack: Prometheus + Grafana + exporters.
+#   make monitor-up      (= docker compose -p urbanflow-monitoring -f docker-compose.monitoring.yml up -d)
+#   make monitor-down
+# Grafana http://localhost:3000 (admin / urbanflow), Prometheus http://localhost:9090.
+#
+# It never joins the other stacks' networks. Every big-data stack publishes its
+# web/metrics ports on the host, and Prometheus scrapes them through
+# host.docker.internal, so this stack starts cleanly whether zero, one or all
+# of the other stacks are running. A stack that is down simply shows as a
+# down target (up == 0) until it starts.
+name: urbanflow-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=3d
+      - --web.enable-lifecycle          # lets `make monitor-reload` re-read the config
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Linux; Docker Desktop provides it already
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana-oss:12.1.1
+    depends_on: [prometheus]
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-urbanflow}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"        # read-only viewing without login, for the demo
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/overview.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+  # Per-container CPU / memory / network for every container on this Docker
+  # host. The containerd socket mount is what lets it resolve container names
+  # and compose labels on Docker Desktop's containerd image store.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    privileged: true
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service
+      - --enable_metrics=cpu,memory,network
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    restart: unless-stopped
+
+  # Hadoop, Hive, HBase and ZooKeeper report their metrics as JSON (/jmx and
+  # /commands/mntr), not in Prometheus text format. json-exporter fetches that
+  # JSON on each scrape and converts the fields we care about into Prometheus
+  # metrics, so those stacks need no config change and no agent jar.
+  json-exporter:
+    image: quay.io/prometheuscommunity/json-exporter:v0.7.0
+    command: ["--config.file=/config/config.yml"]
+    volumes:
+      - ./monitoring/json-exporter:/config:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:

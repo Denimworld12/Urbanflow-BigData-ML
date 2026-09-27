@@ -1,0 +1,93 @@
+# Prometheus scrape config for UrbanFlow's big-data stacks.
+#
+# Every non-monitoring target is reached through host.docker.internal on the
+# port that stack publishes on the host. A stack that is not running shows up
+# as a down target (up == 0) in the Overview dashboard; nothing here fails.
+# After editing this file: make monitor-reload (no restart needed).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  # --- the monitoring stack itself ------------------------------------------
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels: {stack: monitoring, component: prometheus}
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+        labels: {stack: monitoring, component: grafana}
+
+  - job_name: cadvisor
+    scrape_interval: 10s
+    # cAdvisor stamps samples with its own collection time; with those kept,
+    # a stopped container's series would linger for 5 minutes. Scrape time
+    # lets Prometheus mark it stale on the next scrape instead.
+    honor_timestamps: false
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels: {stack: monitoring, component: cadvisor}
+    metric_relabel_configs:
+      # Short, readable label names for the two compose labels cAdvisor keeps.
+      - source_labels: [container_label_com_docker_compose_project]
+        target_label: compose_project
+      - source_labels: [container_label_com_docker_compose_service]
+        target_label: compose_service
+      - regex: container_label_com_docker_compose_(project|service)
+        action: labeldrop
+      # stack/component above describe cAdvisor itself (for `up`); on the
+      # container series they would wrongly say every container is "monitoring".
+      - regex: stack|component
+        action: labeldrop
+
+  # --- Hadoop core: HDFS + YARN + Hive (docker-compose.hadoop.yml) -----------
+  - job_name: hadoop
+    metrics_path: /probe
+    static_configs:
+      - targets: ["http://host.docker.internal:9870/jmx"]
+        labels: {stack: hadoop, component: namenode, module: namenode}
+      - targets: ["http://host.docker.internal:9864/jmx"]
+        labels: {stack: hadoop, component: datanode, module: datanode}
+      - targets: ["http://host.docker.internal:8088/jmx"]
+        labels: {stack: hadoop, component: resourcemanager, module: resourcemanager}
+      - targets: ["http://host.docker.internal:8042/jmx"]
+        labels: {stack: hadoop, component: nodemanager, module: nodemanager}
+      - targets: ["http://host.docker.internal:10002/jmx"]
+        labels: {stack: hadoop, component: hiveserver2, module: hiveserver2}
+    # /jmx is JSON, not Prometheus text, so these scrapes go through
+    # json-exporter: the target URL becomes ?target=..., the module comes from
+    # the `module` label, and the request itself is sent to json-exporter.
+    relabel_configs: &json_relabel
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [module]
+        target_label: __param_module
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: json-exporter:7979
+
+  # --- HBase + ZooKeeper (docker-compose.hbase.yml) -------------------------
+  - job_name: hbase
+    metrics_path: /probe
+    static_configs:
+      - targets: ["http://host.docker.internal:16010/jmx"]
+        labels: {stack: hbase, component: hbase-master, module: hbase_master}
+      - targets: ["http://host.docker.internal:16030/jmx"]
+        labels: {stack: hbase, component: hbase-regionserver, module: hbase_regionserver}
+      - targets: ["http://host.docker.internal:8080/commands/mntr"]
+        labels: {stack: hbase, component: zookeeper, module: zookeeper}
+    relabel_configs: *json_relabel
+
+  # --- Kafka + Spark Structured Streaming (docker-compose.streaming.yml) ----
+  # kafka-exporter ships with the streaming stack and already speaks
+  # Prometheus: topic offsets (throughput) and consumer-group lag.
+  - job_name: kafka
+    static_configs:
+      - targets: ["host.docker.internal:9308"]
+        labels: {stack: streaming, component: kafka-exporter}
