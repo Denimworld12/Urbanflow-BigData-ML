@@ -41,7 +41,7 @@ modules:
       - name: hdfs_datanode
         type: object
         help: HDFS DataNode FSDatasetState bean
-        path: '{.beans[?(@.modelerType=="FSDatasetState")]}'
+        path: '{.beans[?(@.modelerType=="org.apache.hadoop.hdfs.server.datanode.fsdataset.impl.FsDatasetImpl")]}'
         values:
           capacity_bytes: '{.Capacity}'
           dfs_used_bytes: '{.DfsUsed}'

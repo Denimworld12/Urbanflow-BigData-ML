@@ -86,6 +86,34 @@ make gold && make model && make bench
 Develop on Tier 0 so mistakes cost 20 seconds. Report from Tier 1.
 Run Tier 2 once, in week 4, for the benchmark chapter.
 
+## Big Data ecosystem
+
+Opt-in Docker stacks that run next to the pipeline above. None of them is
+needed for `docker compose up --build` or the `make` targets; each has its
+own compose file and make targets.
+
+### Monitoring: Prometheus + Grafana
+
+**What:** Prometheus scrapes and stores metrics from every stack every 15 s;
+Grafana draws them. cAdvisor measures CPU / memory / network of every
+container; json-exporter turns the JSON metrics that Hadoop, Hive, HBase and
+ZooKeeper publish (`/jmx`, `/commands/mntr`) into Prometheus metrics.
+**Why:** one place that shows whether HDFS, YARN, Hive, HBase, ZooKeeper,
+Kafka and the Spark streaming job are up and what they are doing, with
+history, instead of one web UI per daemon.
+
+```bash
+make monitor-up       # Grafana http://localhost:3000, Prometheus http://localhost:9090
+make monitor-status   # every scrape target: up or down
+make monitor-down
+```
+
+Start it in any order with the other stacks: a stack that is not running just
+shows as DOWN until it starts. Grafana opens on the Overview dashboard (no
+login to view; `admin` / `urbanflow` to edit), with Hadoop, HBase and
+streaming dashboards in the UrbanFlow folder. How it works and what to say
+in the viva: [`docs/hadoop/monitoring.md`](docs/hadoop/monitoring.md).
+
 ## Running it on Windows, macOS or Linux
 
 The pipeline itself is plain Python + Java and runs the same everywhere. The
@@ -128,6 +156,8 @@ src/urbanflow/
   analyze/benchmark.py S5 format / partitioning / join / core-scaling
   dashboard/app.py     S6 Streamlit over DuckDB — no Spark in this process
 schema/curated.md      THE CONTRACT between the three of you
+monitoring/            Prometheus scrape config + alerts, Grafana provisioning + dashboards
+scripts/build_dashboards.py   generates the Grafana dashboard JSON
 ```
 
 ## Architecture rules that matter
