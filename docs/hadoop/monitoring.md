@@ -189,10 +189,12 @@ so it covers every container, even ones with no metrics endpoint. It answers
 
 **Why json-exporter instead of the JMX exporter agent?** The usual way to get
 Hadoop metrics into Prometheus is a Java agent jar added to each daemon's
-start command. That would mean changing every other stack's image and config.
-Every Hadoop-family daemon already serves its JMX beans as JSON over HTTP, so
-converting that JSON outside the daemon gives the same numbers with zero
-changes to those stacks.
+start command. That would mean changing the start-up of every HDFS, YARN and
+HBase daemon. Those daemons already serve their JMX beans as JSON over HTTP,
+so converting that JSON outside the daemon gives the same numbers with zero
+changes to those stacks. The two Hive services are the exception: the Hadoop
+stack already starts them with the agent (port 9404), so Prometheus reads
+them directly. Both routes end as the same kind of Prometheus metric.
 
 **What is the difference between a metric, a target and a job?** A *target*
 is one URL Prometheus scrapes (the NameNode). A *job* is a group of targets

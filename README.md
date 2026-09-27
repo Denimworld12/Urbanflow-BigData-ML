@@ -96,8 +96,10 @@ own compose file and make targets.
 
 **What:** Prometheus scrapes and stores metrics from every stack every 15 s;
 Grafana draws them. cAdvisor measures CPU / memory / network of every
-container; json-exporter turns the JSON metrics that Hadoop, Hive, HBase and
-ZooKeeper publish (`/jmx`, `/commands/mntr`) into Prometheus metrics.
+container; json-exporter turns the JSON metrics that HDFS, YARN, HBase and
+ZooKeeper publish (`/jmx`, `/commands/mntr`) into Prometheus metrics. Hive,
+Kafka (via kafka-exporter) and the Spark streaming job already expose
+Prometheus metrics and are scraped directly.
 **Why:** one place that shows whether HDFS, YARN, Hive, HBase, ZooKeeper,
 Kafka and the Spark streaming job are up and what they are doing, with
 history, instead of one web UI per daemon.
