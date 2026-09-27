@@ -57,6 +57,7 @@ clean-data:   ## delete derived layers, keep bronze
 # Walkthrough: docs/hadoop/hbase.md
 HBASE := docker compose -f docker-compose.hbase.yml -p urbanflow-hbase
 HBASE_CLIENT := $(HBASE) run --rm -T hbase-client
+HBASE_GOLD := $(or $(URBANFLOW_DATA),data)/gold
 
 JMX_AGENT := docker/hbase/jmx-exporter/jmx_prometheus_javaagent.jar
 JMX_AGENT_URL := https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/1.0.1/jmx_prometheus_javaagent-1.0.1.jar
@@ -73,7 +74,7 @@ hbase-up: $(JMX_AGENT)  ## start ZooKeeper + HBase master, regionserver, Thrift 
 	@echo "Next: make hbase-load"
 
 hbase-load:   ## create the HBase tables and load data/gold into them
-	@test -d data/gold/demand_by_zone_hour || { echo "data/gold is empty: run make gold && make predict-grid first"; exit 1; }
+	@test -d $(HBASE_GOLD)/demand_by_zone_hour || { echo "$(HBASE_GOLD) is empty: run make gold && make predict-grid first"; exit 1; }
 	$(HBASE_CLIENT) hbase shell -n /app/scripts/hbase/create_tables.rb
 	$(HBASE_CLIENT) python3 -m urbanflow.hbase.load
 

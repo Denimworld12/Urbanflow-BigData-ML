@@ -113,7 +113,8 @@ HFiles. Data is always sorted by row key, which is why key design matters.
 ## 3. Running it
 
 Prerequisites: Docker, and a gold layer in `data/gold/` (`make gold && make
-predict-grid`, or a prepared gold layer copied into `data/gold/`). The first
+predict-grid`, or a prepared gold layer copied into `data/gold/`). If you set
+`URBANFLOW_DATA`, the load reads `$URBANFLOW_DATA/gold` instead. The first
 `make hbase-up` builds the image (~1.4 GB, it downloads the ~370 MB HBase
 release once) and fetches the ~3 MB Prometheus JMX exporter agent into
 `docker/hbase/jmx-exporter/` (gitignored). The stack needs about 3 GB of RAM.
@@ -342,8 +343,10 @@ borough name, so writes are already spread across the key space.
 keeps the shell output readable. The cost is that numeric filters compare as
 text; a system doing counters would store 8-byte longs and use `INCREMENT`.
 
-**Loading is idempotent:** keys are deterministic and every family keeps
-`VERSIONS => 1`, so re-running `make hbase-load` overwrites the same cells.
+**Each load replaces the tables:** `create_tables.rb` runs `truncate_preserve`
+on tables that already exist (this keeps the pre-split regions), then the
+loader writes the current gold layer. Re-running `make hbase-load` after
+switching from Tier 0 to Tier 2 therefore leaves no stale rows behind.
 
 ## 5. ZooKeeper's role, concretely
 

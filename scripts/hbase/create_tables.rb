@@ -1,10 +1,13 @@
-# HBase shell DDL for UrbanFlow's serving tables. Safe to re-run.
+# HBase shell DDL for UrbanFlow's serving tables. Safe to re-run: tables that
+# already exist are emptied with truncate_preserve (keeps the pre-split regions),
+# so each `make hbase-load` replaces the contents instead of merging into them.
 # Run by `make hbase-load`:  hbase shell -n /app/scripts/hbase/create_tables.rb
 # The shell is JRuby, so plain Ruby (unless/include?) works around the commands.
 # (The list_namespace *command* only prints; @shell.admin.list_namespace returns the names.)
 
 create_namespace 'urbanflow' unless @shell.admin.list_namespace.include?('urbanflow')
 existing = list('urbanflow:.*')
+existing.each { |t| truncate_preserve t }
 
 # demand_by_zone_hour, key zone#daytype#HH.
 #   m = metrics every lookup reads; kept small, cached in memory, bloom filter on

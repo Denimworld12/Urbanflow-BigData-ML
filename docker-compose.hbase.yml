@@ -131,7 +131,7 @@ services:
       - ./docker/hbase/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro
       - ./src:/app/src:ro
       - ./scripts/hbase:/app/scripts/hbase:ro
-      - ./data/gold:/app/data/gold:ro
+      - ${URBANFLOW_DATA:-./data}/gold:/app/data/gold:ro
 
 networks:
   hbase-net:

@@ -4,8 +4,8 @@ gold/demand_by_zone_hour  -> urbanflow:demand
 gold/duration_predictions -> urbanflow:duration_pred
 gold/daily_kpis           -> urbanflow:daily_kpis
 
-Row keys are deterministic (keys.py) and each family keeps one version, so a
-re-run overwrites the same cells rather than duplicating rows. Values are
+Row keys are deterministic (keys.py). create_tables.rb truncates existing
+tables first, so each load replaces the table contents. Values are
 stored as UTF-8 strings: HBase itself only stores bytes, and strings keep the
 cells readable in the HBase shell.
 """
