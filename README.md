@@ -119,6 +119,10 @@ login to view; `admin` / `urbanflow` to edit), with Hadoop, HBase and
 streaming dashboards in the UrbanFlow folder. How it works and what to say
 in the viva: [`docs/hadoop/monitoring.md`](docs/hadoop/monitoring.md).
 
+Prometheus and Grafana listen on `127.0.0.1` only. To show them to another
+device on the LAN, change the Grafana admin password first:
+`GRAFANA_PASSWORD='<something strong>' MONITOR_BIND=0.0.0.0 make monitor-up`.
+
 ## Running it on Windows, macOS or Linux
 
 The pipeline itself is plain Python + Java and runs the same everywhere. The

@@ -72,8 +72,8 @@ monitor-down: ## stop the monitoring stack (keeps its data volumes)
 monitor-status: ## list every scrape target and whether it is up
 	@curl -fsS "http://localhost:$${PROMETHEUS_PORT:-9090}/api/v1/targets?state=active" | python3 scripts/monitor_status.py
 
-monitor-reload: ## make Prometheus re-read prometheus.yml / alerts.yml
-	curl -fsS -X POST "http://localhost:$${PROMETHEUS_PORT:-9090}/-/reload" && echo reloaded
+monitor-reload: ## make Prometheus re-read prometheus.yml / alerts.yml (SIGHUP)
+	$(MONITOR) kill -s SIGHUP prometheus && echo reloaded
 
 monitor-check: ## validate the Prometheus config and alert rules with promtool
 	docker run --rm --entrypoint promtool -v "$(CURDIR)/monitoring/prometheus:/p:ro" \

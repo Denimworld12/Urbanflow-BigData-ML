@@ -24,7 +24,22 @@ make monitor-down      # stop it (data volumes are kept)
 | Prometheus | <http://localhost:9090>. `/targets` lists every scrape, `/alerts` the alert rules. |
 
 Port clash? `GRAFANA_PORT=3300 PROMETHEUS_PORT=9095 make monitor-up`
-(also pass them to `make monitor-status` / `monitor-reload`).
+(also pass them to `make monitor-status`).
+
+Both listen on `127.0.0.1` only, so nobody else on the network can reach
+them. To show the dashboards on another device (a projector laptop, a phone),
+set `MONITOR_BIND=0.0.0.0`, and change the Grafana admin password at the same
+time, because the default `urbanflow` is in this repo:
+
+```bash
+GRAFANA_PASSWORD='<something strong>' MONITOR_BIND=0.0.0.0 make monitor-up
+```
+
+`GRAFANA_PASSWORD` sets `GF_SECURITY_ADMIN_PASSWORD`. Grafana stores the
+admin password in its data volume on first start, so if it has already run
+with the default, run `make monitor-down && docker volume rm
+urbanflow-monitoring_grafana-data` first (dashboards are provisioned from the
+repo, nothing is lost).
 
 Start it before or after the other stacks. A stack that is not running just
 shows as DOWN. If you start a stack *after* monitoring, run `make
@@ -210,6 +225,12 @@ the Kafka throughput and HBase requests-per-second panels are drawn.
 
 * One machine, one Prometheus, three days of retention (`--storage.tsdb.retention.time=3d`).
   A production setup would add Alertmanager and long-term storage.
+* No authentication on Prometheus, and anonymous read-only viewing on
+  Grafana. That is why both bind to `127.0.0.1` by default; before exposing
+  them with `MONITOR_BIND=0.0.0.0`, set `GRAFANA_PASSWORD`. `make
+  monitor-reload` sends Prometheus a SIGHUP instead of using the HTTP
+  `/-/reload` endpoint, so the lifecycle API (which can also shut Prometheus
+  down) stays off.
 * `host.docker.internal` is built into Docker Desktop (macOS / Windows); on
   Linux the compose file maps it to the host gateway, which needs Docker 20.10+.
 * cAdvisor needs `privileged` and read-only mounts of the Docker host's

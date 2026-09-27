@@ -10,6 +10,8 @@ import json
 import re
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parent.parent
 DASHBOARDS = ROOT / "monitoring" / "grafana" / "dashboards"
 JSON_EXPORTER = ROOT / "monitoring" / "json-exporter" / "config.yml"
@@ -26,16 +28,13 @@ def _builder():
 def _json_exporter_metrics() -> set[str]:
     """Metric names json-exporter emits: `name` for value metrics,
     `name_<key>` for each key under `values:` of an object metric."""
-    names, current, in_values = set(), None, False
-    for line in JSON_EXPORTER.read_text().splitlines():
-        if m := re.match(r"\s+(?:- (?:&\w+\s+)?)?name: (\w+)$", line):
-            current, in_values = m.group(1), False
-            names.add(current)
-        elif re.match(r"\s+values:$", line):
-            in_values = True
-            names.discard(current)
-        elif in_values and (m := re.match(r"\s{10}(\w+): '", line)):
-            names.add(f"{current}_{m.group(1)}")
+    names = set()
+    for module in yaml.safe_load(JSON_EXPORTER.read_text())["modules"].values():
+        for metric in module["metrics"]:
+            if metric.get("type") == "object":
+                names.update(f"{metric['name']}_{key}" for key in metric["values"])
+            else:
+                names.add(metric["name"])
     return names
 
 
@@ -68,7 +67,7 @@ def test_every_queried_metric_has_a_source():
     assert {"hdfs_live_datanodes", "yarn_apps_running", "jvm_heap_used_bytes",
             "hbase_master_region_servers", "zookeeper_znodes"} <= known
     # Everything else comes from exporters that name their own metrics.
-    external = ("container_", "kafka_", "jvm_memory_used_bytes", "up", "ALERTS")
+    external = ("container_", "kafka_", "jvm_memory_used_bytes", "ALERTS")
     keywords = {"sum", "max", "min", "count", "rate", "by", "or", "vector", "label_values",
                 "label_replace"}
     for dash, title, expr in _exprs():
@@ -77,4 +76,5 @@ def test_every_queried_metric_has_a_source():
             if word in keywords or word in {"compose_project", "compose_service", "topic",
                                             "consumergroup", "name", "component"}:
                 continue
-            assert word in known or word.startswith(external), (dash, title, word)
+            assert word in known or word == "up" or word.startswith(external), (
+                dash, title, word)

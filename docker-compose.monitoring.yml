@@ -2,6 +2,8 @@
 #   make monitor-up      (= docker compose -p urbanflow-monitoring -f docker-compose.monitoring.yml up -d)
 #   make monitor-down
 # Grafana http://localhost:3000 (admin / urbanflow), Prometheus http://localhost:9090.
+# Both listen on 127.0.0.1 only; MONITOR_BIND=0.0.0.0 exposes them on the LAN
+# (set GRAFANA_PASSWORD first).
 #
 # `make monitor-up` also runs scripts/monitor_attach.sh, which connects
 # Prometheus and json-exporter to the Hadoop, HBase and streaming stacks'
@@ -18,9 +20,8 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=3d
-      - --web.enable-lifecycle          # lets `make monitor-reload` re-read the config
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "${MONITOR_BIND:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./monitoring/prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
@@ -32,7 +33,7 @@ services:
     image: grafana/grafana-oss:12.1.1
     depends_on: [prometheus]
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "${MONITOR_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-urbanflow}
