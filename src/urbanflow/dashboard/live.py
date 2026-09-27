@@ -11,14 +11,16 @@ import duckdb
 import plotly.express as px
 import streamlit as st
 from urbanflow import config
+from urbanflow.stream.sink import committed_files
 
 METRICS = config.STREAM / "zone_metrics"
 
 
 @st.fragment(run_every="10s")
 def render(con: duckdb.DuckDBPyConnection) -> None:
-    # Top-level part files only; _spark_metadata/ holds the sink's commit log.
-    files = list(METRICS.glob("*.parquet")) if METRICS.exists() else []
+    files = committed_files(METRICS)
+    if files is None:
+        files = list(METRICS.glob("*.parquet")) if METRICS.exists() else []
     if not files:
         st.info("No streaming output yet. The real-time path is optional — to see it here, run "
                 "in three terminals:\n\n"
@@ -28,7 +30,7 @@ def render(con: duckdb.DuckDBPyConnection) -> None:
                 "See docs/hadoop/streaming.md.")
         return
 
-    src = f"read_parquet('{METRICS}/*.parquet')"
+    src = "read_parquet([" + ", ".join("'" + str(f).replace("'", "''") + "'" for f in files) + "])"
     try:
         totals = con.execute(f"SELECT count(*) AS windows, sum(trips) AS trips, "
                              f"max(window_end) AS latest FROM {src}").df().iloc[0]

@@ -93,9 +93,10 @@ dirty rows never reach the watermark. `tests/test_stream.py` checks this.
 output. Each batch's offsets are logged before it runs, and each batch's
 files are committed in `zone_metrics/_spark_metadata/`. A batch that is
 retried after a crash does not produce duplicate rows. Readers should use
-that log (Spark does). DuckDB's `*.parquet` glob does not, so it can also
-pick up an uncommitted file left by a batch that crashed mid-write. That is
-acceptable for the Live tab, and `make stream-reset` clears it. The Kafka
+that log (Spark does). A plain `*.parquet` glob would also pick up an
+uncommitted file left by a batch that crashed mid-write, so the Live tab
+reads only the files the log lists as committed (it falls back to the glob
+only when the log does not exist). The Kafka
 sink is at-least-once: consumers may see a repeated update after a restart.
 
 **Stream-static join.** The 265-row zone lookup is a static DataFrame that
