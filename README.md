@@ -8,6 +8,10 @@ Six stages, bronze to dashboard: ingest → curate → gold → model → benchm
 dashboard. See [`docs/OUTCOMES.md`](docs/OUTCOMES.md) for what each stage
 hands in and why it counts as "big data" despite the laptop.
 
+Alongside the batch pipeline there is an opt-in **real-time path**: trips
+replayed into Apache Kafka and aggregated live by Spark Structured Streaming
+(see [Big Data ecosystem](#big-data-ecosystem)).
+
 ## Screenshots
 
 The dashboard, running against the real 243.5M-row FHVHV gold layer:
@@ -113,6 +117,49 @@ running the driver (`sys.executable`) — this avoids a real bug we hit during
 testing where Spark silently picked up a different, incompatible system
 Python off `PATH`. That fix is OS-independent by construction.
 
+## Big Data ecosystem
+
+Opt-in components that sit next to the batch pipeline. None of them is needed
+for `docker compose up` or the Quickstart; each has its own compose file and
+`make` targets.
+
+### Real-time: Kafka + Spark Structured Streaming
+
+**What:** [Apache Kafka](https://kafka.apache.org/) is a distributed,
+append-only log that producers write events to and consumers read from at
+their own pace. Spark Structured Streaming runs the same DataFrame code as the
+batch jobs, but incrementally, on each new slice of the log.
+
+**Why UrbanFlow uses it:** the batch path answers "what happened last
+month". The streaming path answers "what is happening in each zone right
+now". A producer replays real TLC trips into Kafka as live JSON events. A
+Spark job cleans them with the **same seven rules** as curate, then computes
+trips, average fare and average duration per pickup zone per 5-minute
+event-time window. A watermark decides how late a trip may arrive and still
+count.
+
+```bash
+make setup           # once — also installs kafka-python
+make ingest TIER=0   # or: make synth   (the producer replays bronze)
+make stream-up       # Kafka (KRaft mode, no ZooKeeper) + kafka-exporter, topics created
+make stream-run      # terminal 1: the Spark streaming job (Ctrl-C to stop)
+make stream-produce  # terminal 2: replay 300k trips at 2000 events/s (RATE=, LIMIT=, SKIP=)
+make stream-status   # topic layout + consumer-group lag
+make stream-tail     # first windowed results from the zone-metrics topic
+make stream-down     # stop (keeps data) — make stream-reset wipes Kafka + data/stream
+```
+
+Results land in `data/stream/zone_metrics/` (Parquet, final windows) and on
+the `zone-metrics` Kafka topic (running updates). The dashboard's **Live**
+tab reads the Parquet output. For monitoring, Kafka metrics are served at
+`localhost:9308/metrics` (kafka-exporter), and Spark streaming metrics at
+`localhost:4050/metrics/prometheus/` while the job runs. Needs Docker for
+Kafka; the producer and the Spark job run from the project venv on the host.
+The full explanation, architecture and viva notes are in
+[`docs/hadoop/streaming.md`](docs/hadoop/streaming.md).
+
+![Live tab](docs/screenshots/live.png)
+
 ## Layout
 
 ```
@@ -127,6 +174,9 @@ src/urbanflow/
   analyze/model.py     S4 duration model with a naive baseline
   analyze/benchmark.py S5 format / partitioning / join / core-scaling
   dashboard/app.py     S6 Streamlit over DuckDB — no Spark in this process
+  dashboard/live.py    the Live tab — reads the streaming sink, degrades to setup hints
+  stream/producer.py   real-time: replay bronze trips into Kafka as JSON events
+  stream/job.py        real-time: Spark Structured Streaming, windowed zone metrics
 schema/curated.md      THE CONTRACT between the three of you
 ```
 

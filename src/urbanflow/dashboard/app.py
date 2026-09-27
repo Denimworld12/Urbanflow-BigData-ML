@@ -18,6 +18,7 @@ import plotly.io as pio
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from urbanflow import config                                     # noqa: E402
+from urbanflow.dashboard import live as live_view                # noqa: E402
 
 
 def _session_token() -> str:
@@ -313,8 +314,8 @@ with st.container(border=True):
         _ask(question)
         st.rerun()
 
-predict, explore, kpi, geo, beh, perf = st.tabs(
-    ["Predict", "Explore", "Overview", "Geography", "Behaviour", "Performance"])
+predict, explore, kpi, geo, beh, perf, live = st.tabs(
+    ["Predict", "Explore", "Overview", "Geography", "Behaviour", "Performance", "Live"])
 
 # ------------------------------------------------------------------ explore
 with explore:
@@ -734,3 +735,7 @@ with predict:
                     st.info(f"**If the time is flexible:** {int(best.pickup_hour):02d}:00 is the "
                            f"fastest hour for this exact route — about {saved:.0f} minutes quicker "
                            f"than your {hour:02d}:00 pick.")
+
+# ------------------------------------------------------------------ live (optional streaming path)
+with live:
+    live_view.render(con)

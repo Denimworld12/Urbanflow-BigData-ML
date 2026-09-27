@@ -8,6 +8,8 @@ Why these settings (be ready to explain each in the viva):
                            200 tiny tasks and 200 tiny files. 32 is right for a laptop.
   adaptive.enabled         Lets Spark coalesce badly-sized partitions at runtime.
   local.dir                Where shuffle data spills. Needs real free disk.
+  extra_conf               Job-specific additions applied last, e.g. the streaming
+                           job adds the Kafka connector package and its metrics.
 """
 from __future__ import annotations
 import os
@@ -32,12 +34,12 @@ def _default_cores() -> int:
 
 def get_spark(app: str = "UrbanFlow", cores: int | None = None,
               driver_mem: str | None = None, shuffle_parts: int | None = None,
-              quiet: bool = True) -> SparkSession:
+              quiet: bool = True, extra_conf: dict[str, str] | None = None) -> SparkSession:
     cores = cores or int(os.environ.get("URBANFLOW_CORES", _default_cores()))
     driver_mem = driver_mem or os.environ.get("URBANFLOW_DRIVER_MEM", "4g")
     shuffle_parts = shuffle_parts or int(os.environ.get("URBANFLOW_SHUFFLE", cores * 8))
 
-    spark = (
+    builder = (
         SparkSession.builder
         .appName(app)
         .master(f"local[{cores}]")
@@ -55,8 +57,10 @@ def get_spark(app: str = "UrbanFlow", cores: int | None = None,
         .config("spark.local.dir", str(config.SPILL))
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.ui.showConsoleProgress", "false")
-        .getOrCreate()
     )
+    for k, v in (extra_conf or {}).items():
+        builder = builder.config(k, v)
+    spark = builder.getOrCreate()
     if quiet:
         spark.sparkContext.setLogLevel("ERROR")
     return spark
