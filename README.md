@@ -177,6 +177,7 @@ src/urbanflow/
   dashboard/live.py    the Live tab — reads the streaming sink, degrades to setup hints
   stream/producer.py   real-time: replay bronze trips into Kafka as JSON events
   stream/job.py        real-time: Spark Structured Streaming, windowed zone metrics
+  stream/sink.py       real-time: which sink Parquet files are committed (for the Live tab)
 schema/curated.md      THE CONTRACT between the three of you
 ```
 
@@ -187,8 +188,9 @@ schema/curated.md      THE CONTRACT between the three of you
 * **The curated schema is a contract**, frozen at the end of week 2
   (`schema/curated.md`). Changing it means telling both teammates in the same
   commit.
-* **The dashboard never reads the curated layer** — only `data/gold/`, through
-  DuckDB. That gap is deliberate, not a shortcut.
+* **The dashboard never reads the curated layer** — only `data/gold/` (plus
+  the Live tab's `data/stream/`), through DuckDB. That gap is deliberate, not a
+  shortcut.
 * **Never commit data.** `data/` is gitignored; it's reproducible from
   `data/raw/manifest.csv`.
 

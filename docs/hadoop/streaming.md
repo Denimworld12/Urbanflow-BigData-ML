@@ -304,6 +304,8 @@ replication 3 and `min.insync.replicas=2`.
 docker-compose.streaming.yml   Kafka (KRaft) + kafka-exporter, network urbanflow-streaming
 src/urbanflow/stream/producer.py
 src/urbanflow/stream/job.py
+src/urbanflow/stream/sink.py     committed-file list from _spark_metadata (used by the Live tab)
 src/urbanflow/dashboard/live.py  the Live tab
 tests/test_stream.py             parsing, cleaning-before-watermark, windows, card-only tips
+tests/test_sink.py               committed-file log parsing, compact files, orphaned part files
 ```
