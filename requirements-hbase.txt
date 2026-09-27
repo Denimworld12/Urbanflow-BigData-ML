@@ -1,0 +1,5 @@
+# Extra client libraries for the opt-in HBase stack (docker-compose.hbase.yml).
+# Baked into the urbanflow-hbase image; install on the host only if you want to
+# run the loader/queries from your own venv:  .venv/bin/pip install -r requirements-hbase.txt
+happybase==1.3.0     # HBase client over the Thrift gateway
+pyarrow>=17.0.0      # reads the gold Parquet tables

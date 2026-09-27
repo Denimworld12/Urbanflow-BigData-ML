@@ -1,0 +1,5 @@
+# Prometheus JMX exporter config, shared by every JVM in docker-compose.hbase.yml.
+# No rules = export every JMX bean with the exporter's default naming
+# (e.g. hadoop_hbase_numregionservers, org_apache_zookeeperservice_...).
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true

@@ -1,7 +1,10 @@
 # UrbanFlow
 
-Batch analytics over NYC TLC trip records with Apache Spark, running in
-**local mode on a single laptop** — no cluster, no Hadoop, no Cassandra.
+Batch analytics over NYC TLC trip records with Apache Spark. The core
+pipeline runs in **local mode on a single laptop**, with no cluster needed.
+Opt-in Hadoop-ecosystem stacks run next to it in Docker (see
+[Big Data ecosystem](#big-data-ecosystem)): HBase + ZooKeeper serve the gold
+tables by key.
 BDA semester project · three members · six weeks · 8 GB laptops.
 
 Six stages, bronze to dashboard: ingest → curate → gold → model → benchmark →
@@ -86,6 +89,38 @@ make gold && make model && make bench
 Develop on Tier 0 so mistakes cost 20 seconds. Report from Tier 1.
 Run Tier 2 once, in week 4, for the benchmark chapter.
 
+## Big Data ecosystem
+
+Opt-in additions from the Hadoop ecosystem. Each has its own compose file and
+`make` targets, and none of them changes the default `docker compose up` or the
+`make` pipeline above.
+
+### HBase + ZooKeeper: low-latency serving
+
+**What:** HBase is a distributed, sorted key-value store (Bigtable model) that
+normally keeps its files on HDFS. ZooKeeper is the coordination service HBase
+uses to elect the active master, track live RegionServers and locate
+`hbase:meta`.
+**Why here:** Spark builds the gold tables in batch, but an app asking "how
+busy is JFK at 17:00?" or "how long is a 10-mile Manhattan → Queens trip at
+08:00?" needs a millisecond lookup by key, not a batch job. HBase serves three
+gold tables (`demand_by_zone_hour`, the model's `duration_predictions` grid,
+`daily_kpis`) with row keys designed for those lookups, e.g.
+`JFK Airport#weekday#17` and `Manhattan#Queens#weekday#08#10.0`.
+
+```bash
+make hbase-up      # ZooKeeper + HMaster + RegionServer + Thrift gateway (Docker)
+make hbase-load    # create tables (HBase shell) and load data/gold (Python, happybase)
+make hbase-query   # gets, prefix scans, range scans, counts: HBase shell, then Python
+make hbase-zk      # ZooKeeper znodes: /hbase/master, /hbase/rs, meta location
+make hbase-down    # stop (make hbase-clean also deletes the data volume)
+```
+
+Needs a gold layer in `data/gold/` first (`make gold && make predict-grid`).
+Master UI at [localhost:16010](http://localhost:16010). Architecture, row-key
+design, ZooKeeper failure-detection demo, metrics endpoints and viva notes:
+[`docs/hadoop/hbase.md`](docs/hadoop/hbase.md).
+
 ## Running it on Windows, macOS or Linux
 
 The pipeline itself is plain Python + Java and runs the same everywhere. The
@@ -127,6 +162,7 @@ src/urbanflow/
   analyze/model.py     S4 duration model with a naive baseline
   analyze/benchmark.py S5 format / partitioning / join / core-scaling
   dashboard/app.py     S6 Streamlit over DuckDB — no Spark in this process
+  hbase/               opt-in HBase serving layer: row keys, loader, queries
 schema/curated.md      THE CONTRACT between the three of you
 ```
 
