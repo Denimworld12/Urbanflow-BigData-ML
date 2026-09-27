@@ -113,7 +113,7 @@ scrape_configs:
   # not in a container, with its UI and Prometheus servlet on :4050. It is
   # only up while the job is running.
   - job_name: spark-streaming
-    metrics_path: /metrics/prometheus
+    metrics_path: /metrics/prometheus/   # without the slash Spark answers 301
     static_configs:
       - targets: ["host.docker.internal:4050"]
         labels: {stack: streaming, component: spark-driver}
