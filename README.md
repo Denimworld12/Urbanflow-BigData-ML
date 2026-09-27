@@ -3,8 +3,10 @@
 Batch analytics over NYC TLC trip records with Apache Spark. The core
 pipeline runs in **local mode on a single laptop**, with no cluster needed.
 Opt-in Hadoop-ecosystem stacks run next to it in Docker (see
-[Big Data ecosystem](#big-data-ecosystem)): HBase + ZooKeeper serve the gold
-tables by key.
+[Big Data ecosystem](#big-data-ecosystem)): HDFS, YARN, MapReduce and Hive
+process the same data as a Hadoop cluster, HBase + ZooKeeper serve the gold
+tables by key, Kafka + Spark Structured Streaming add a real-time path, and
+Prometheus + Grafana monitor all of them.
 BDA semester project · three members · six weeks · 8 GB laptops.
 
 Six stages, bronze to dashboard: ingest → curate → gold → model → benchmark →
@@ -151,7 +153,14 @@ Python off `PATH`. That fix is OS-independent by construction.
 
 Opt-in components that sit next to the batch pipeline. None of them is needed
 for `docker compose up` or the Quickstart; each has its own compose file and
-`make` targets.
+`make` targets, and none replaces anything above.
+
+| Component | Stack | Walkthrough |
+|---|---|---|
+| HDFS, YARN, MapReduce, Hive (+ metastore on PostgreSQL, Tez) | `docker-compose.hadoop.yml` | [docs/hadoop/README.md](docs/hadoop/README.md) |
+| HBase + ZooKeeper | `docker-compose.hbase.yml` | [docs/hadoop/hbase.md](docs/hadoop/hbase.md) |
+| Kafka + Spark Structured Streaming | `docker-compose.streaming.yml` | [docs/hadoop/streaming.md](docs/hadoop/streaming.md) |
+| Prometheus + Grafana monitoring | `docker-compose.monitoring.yml` | [docs/hadoop/monitoring.md](docs/hadoop/monitoring.md) |
 
 ### Real-time: Kafka + Spark Structured Streaming
 
@@ -190,6 +199,67 @@ The full explanation, architecture and viva notes are in
 
 ![Live tab](docs/screenshots/live.png)
 
+### Hadoop core: HDFS, YARN, MapReduce, Hive
+
+`docker-compose.hadoop.yml` stores UrbanFlow's bronze/silver/gold layers in
+HDFS and processes them with the classic Hadoop tools. Full walkthrough, architecture diagram and monitoring endpoints:
+[`docs/hadoop/README.md`](docs/hadoop/README.md).
+
+| Component | What it is | What UrbanFlow does with it | Viva notes |
+|---|---|---|---|
+| **HDFS** | distributed file system: files split into 128 MB blocks, replicated across DataNodes, indexed by the NameNode | holds the data lake under `/urbanflow/{bronze,silver,gold}` | [hdfs.md](docs/hadoop/hdfs.md) |
+| **YARN** | cluster resource manager: ResourceManager hands out containers, NodeManagers run them | runs the MapReduce job and every Hive query | [yarn.md](docs/hadoop/yarn.md) |
+| **MapReduce** | map -> shuffle/sort -> reduce batch model | Python (Hadoop Streaming) job: trips per pickup zone per hour, output back to HDFS | [mapreduce.md](docs/hadoop/mapreduce.md) |
+| **Hive** | SQL over files in HDFS; tables are schema + location in a metastore | external tables over the Parquet layers, HiveQL that reproduces the gold answers, a managed ACID ORC table | [hive.md](docs/hadoop/hive.md) |
+| **Hive Metastore + PostgreSQL** | the catalogue: table/partition schemas and HDFS locations (not the data) | shared metastore backed by a real Postgres, not embedded Derby | [hive.md](docs/hadoop/hive.md) |
+| **Tez** | DAG execution engine Hive 4 compiles queries into | runs Hive's queries as YARN applications | [hive.md](docs/hadoop/hive.md) |
+
+```bash
+make synth curate gold     # or the real-data path: make ingest TIER=0 && make curate && make gold
+make hadoop-up             # 8 containers: NameNode, DataNode, ResourceManager, NodeManager,
+                           #   JobHistory, Hive metastore + Postgres, HiveServer2 (~2 min)
+make hadoop-demo           # load HDFS -> Hive tables -> MapReduce on YARN -> HiveQL results
+make hadoop-down           # stop (make hadoop-clean also deletes the HDFS/metastore volumes)
+```
+
+Add the real Tier 2 gold tables (243.5M FHVHV trips, from the separate
+`Urbanflow-BDA-data` repository) with
+`make hadoop-load TIER2_GOLD=/path/to/Urbanflow-BDA-data/data/gold`.
+UIs: NameNode http://localhost:19870, YARN http://localhost:18088,
+JobHistory http://localhost:19888, HiveServer2 http://localhost:20002.
+
+What it shows, measured on the Tier 0 month: Hive recomputes `daily_kpis`
+(31/31 days), `demand_by_zone_hour` (10,333/10,333 groups) and `tipping`
+exactly as Spark did, and the MapReduce job's 5,558 zone-hour counts match
+Spark's gold table one for one (3,218,618 trips on both sides).
+
+### Key-value serving: HBase + ZooKeeper
+
+HBase stores the gold tables as wide-column rows with designed row keys
+(e.g. `JFK Airport#weekday#17`, `2025-03-07`) for fast point gets and prefix
+scans; ZooKeeper tracks the live HMaster, RegionServers and the `hbase:meta`
+location.
+
+```bash
+make gold && make predict-grid   # HBase loads data/gold
+make hbase-up      # ZooKeeper + HMaster + RegionServer + Thrift; waits until healthy
+make hbase-load    # create namespace + tables (HBase shell), load gold (Python)
+make hbase-query   # gets / scans / counts, first in the HBase shell, then from Python
+make hbase-zk      # what HBase keeps in ZooKeeper
+make hbase-down    # stop (make hbase-clean also deletes the HBase + ZooKeeper volumes)
+```
+
+UIs: HMaster http://localhost:16010, RegionServer http://localhost:16030.
+Full explanation: [`docs/hadoop/hbase.md`](docs/hadoop/hbase.md).
+
+### Monitoring: Prometheus + Grafana
+
+`docker-compose.monitoring.yml` scrapes the other stacks over their Docker
+networks (`urbanflow-hadoop`, `urbanflow-hbase-net`, `urbanflow-streaming`) and ships provisioned Grafana dashboards and
+Prometheus alert rules. Grafana http://localhost:3000, Prometheus
+http://localhost:9090. Setup and dashboards:
+[`docs/hadoop/monitoring.md`](docs/hadoop/monitoring.md).
+
 ## Layout
 
 ```
@@ -209,6 +279,14 @@ src/urbanflow/
 schema/curated.md      THE CONTRACT between the three of you
 monitoring/            Prometheus scrape config + alerts, Grafana provisioning + dashboards
 scripts/build_dashboards.py   generates the Grafana dashboard JSON
+
+docker-compose.hadoop.yml   opt-in HDFS + YARN + MapReduce + Hive stack
+hadoop/conf/                core/hdfs/yarn/mapred-site.xml, shared by every container
+hadoop/mapreduce/           mapper.py + reducer.py (Hadoop Streaming job)
+hive/conf/                  hive-site.xml, tez-site.xml
+hive/queries/               HiveQL: tables, MapReduce export, analytics
+scripts/hadoop/             load / init / job scripts run inside the containers
+docs/hadoop/                how each component works and what to say about it
 ```
 
 ## Architecture rules that matter

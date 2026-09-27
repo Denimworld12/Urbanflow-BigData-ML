@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<configuration>
+  <!-- One DataNode in this demo cluster, so one copy of each block.
+       A production cluster uses the default of 3. -->
+  <property><name>dfs.replication</name><value>1</value></property>
+  <!-- Hadoop's default block size, stated explicitly because the demo shows it. -->
+  <property><name>dfs.blocksize</name><value>134217728</value></property>
+  <property><name>dfs.namenode.name.dir</name><value>file:///data/hdfs/namenode</value></property>
+  <property><name>dfs.datanode.data.dir</name><value>file:///data/hdfs/datanode</value></property>
+  <!-- No Kerberos in a laptop demo: plain Unix-style permissions are enough. -->
+  <property><name>dfs.permissions.enabled</name><value>false</value></property>
+  <!-- DataNodes register by container IP; resolve them by hostname instead. -->
+  <property><name>dfs.namenode.datanode.registration.ip-hostname-check</name><value>false</value></property>
+  <property><name>dfs.client.use.datanode.hostname</name><value>true</value></property>
+  <property><name>dfs.datanode.use.datanode.hostname</name><value>true</value></property>
+</configuration>

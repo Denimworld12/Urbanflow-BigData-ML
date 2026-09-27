@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<configuration>
+  <property><name>yarn.resourcemanager.hostname</name><value>resourcemanager</value></property>
+  <!-- The shuffle service MapReduce reducers use to fetch map output. -->
+  <property><name>yarn.nodemanager.aux-services</name><value>mapreduce_shuffle</value></property>
+  <!-- What the single NodeManager offers to YARN: 6 GB and 4 vcores. -->
+  <property><name>yarn.nodemanager.resource.memory-mb</name><value>6144</value></property>
+  <property><name>yarn.nodemanager.resource.cpu-vcores</name><value>4</value></property>
+  <property><name>yarn.scheduler.minimum-allocation-mb</name><value>512</value></property>
+  <property><name>yarn.scheduler.maximum-allocation-mb</name><value>4096</value></property>
+  <!-- Docker Desktop's disk is usually >90% full; don't mark the node unhealthy for it. -->
+  <property><name>yarn.nodemanager.disk-health-checker.max-disk-utilization-per-disk-percentage</name><value>99</value></property>
+  <property><name>yarn.nodemanager.vmem-check-enabled</name><value>false</value></property>
+  <!-- Keep container logs after a job ends so `yarn logs -applicationId ...` works. -->
+  <property><name>yarn.log-aggregation-enable</name><value>true</value></property>
+  <property><name>yarn.nodemanager.remote-app-log-dir</name><value>/tmp/logs</value></property>
+  <property><name>yarn.nodemanager.env-whitelist</name>
+    <value>JAVA_HOME,HADOOP_COMMON_HOME,HADOOP_HDFS_HOME,HADOOP_CONF_DIR,CLASSPATH_PREPEND_DISTCACHE,HADOOP_YARN_HOME,HADOOP_HOME,PATH,LANG,TZ,HADOOP_MAPRED_HOME</value></property>
+</configuration>

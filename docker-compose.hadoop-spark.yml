@@ -1,0 +1,14 @@
+# Overlay for `make hadoop-spark`: joins the existing UrbanFlow app container
+# (Spark + pyspark, from docker-compose.yml) to the Hadoop stack's network so
+# Spark can read hdfs://namenode:8020/... Start the stack first: make hadoop-up
+services:
+  urbanflow:
+    networks: [default, urbanflow-hadoop]
+    environment:
+      PYTHONPATH: src
+    volumes:
+      - ./scripts/hadoop:/app/scripts/hadoop:ro
+
+networks:
+  urbanflow-hadoop:
+    external: true

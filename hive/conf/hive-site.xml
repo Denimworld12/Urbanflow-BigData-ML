@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<!-- Used by both Hive containers: the metastore service and HiveServer2.
+     The metastore's Postgres connection is passed in SERVICE_OPTS
+     (docker-compose.hadoop.yml) so only that container knows the password. -->
+<configuration>
+  <!-- HiveServer2 asks the metastore service (Thrift) for table definitions. -->
+  <property><name>hive.metastore.uris</name><value>thrift://hive-metastore:9083</value></property>
+  <!-- Managed (internal) tables live here, in HDFS. External tables stay where they are. -->
+  <property><name>hive.metastore.warehouse.dir</name><value>/user/hive/warehouse</value></property>
+  <property><name>hive.exec.scratchdir</name><value>/tmp/hive</value></property>
+  <property><name>hive.user.install.directory</name><value>/user</value></property>
+  <!-- Compile HiveQL into Tez DAGs that run on the YARN cluster, so every query
+       shows up in the ResourceManager UI next to our own MapReduce job.
+       (Hive 4 deprecates its old MapReduce engine; Tez is its default.) -->
+  <property><name>hive.execution.engine</name><value>tez</value></property>
+  <property><name>mapreduce.framework.name</name><value>yarn</value></property>
+  <property><name>hive.tez.container.size</name><value>1024</value></property>
+  <!-- Plain log lines instead of an animated progress bar, so `make hive-query` output reads cleanly. -->
+  <property><name>hive.server2.in.place.progress</name><value>false</value></property>
+  <!-- Build map-join hash tables inside HiveServer2 instead of forking a
+       separate `hadoop jar` JVM for them (as the image's own default does). -->
+  <property><name>hive.exec.submit.local.task.via.child</name><value>false</value></property>
+  <property><name>hive.server2.enable.doAs</name><value>false</value></property>
+  <property><name>hive.exec.dynamic.partition.mode</name><value>nonstrict</value></property>
+  <!-- No locking/transactions by default: almost every table here is EXTERNAL
+       (read-only over Spark's files). hive/queries/05 switches transactions
+       on for its one managed, ACID table. -->
+  <property><name>hive.support.concurrency</name><value>false</value></property>
+  <property><name>metastore.metastore.event.db.notification.api.auth</name><value>false</value></property>
+</configuration>

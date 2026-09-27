@@ -1,0 +1,5 @@
+# Prometheus JMX exporter config for the two Hive JVMs.
+# Exposes every JMX bean (JVM heap, GC, threads, Hive metrics) as-is.
+lowercaseOutputName: true
+rules:
+  - pattern: ".*"
