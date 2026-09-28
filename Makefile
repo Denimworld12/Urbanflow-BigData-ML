@@ -10,8 +10,7 @@ RATE ?= 2000
 LIMIT ?= 300000
 SKIP ?= 0
 
-.PHONY: help setup check synth ingest curate gold model bench dash all clean-data test \
-        stream-up stream-produce stream-run stream-status stream-tail stream-down stream-reset
+.PHONY: help setup check synth ingest curate gold model predict-grid bench dash all clean-data test
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-15s\033[0m %s\n", $$1, $$2}'
@@ -53,34 +52,49 @@ dash:         ## launch the dashboard
 test:         ## run unit tests (no network, no big data)
 	PYTHONPATH=src .venv/bin/pytest -q tests/
 
-all: synth curate gold model bench  ## full pipeline on synthetic data
+all: synth curate gold model predict-grid bench  ## full pipeline on synthetic data
 
 clean-data:   ## delete derived layers, keep bronze
 	rm -rf data/curated data/gold data/bench data/models data/spill
 
-# ---------------------------------------------------------------- real-time path
-stream-up:    ## start Kafka (KRaft) + kafka-exporter and create the topics
-	$(STREAM_COMPOSE) up -d --wait kafka kafka-exporter
-	$(KAFKA_CLI)/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic trips --partitions 3 --replication-factor 1
-	$(KAFKA_CLI)/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic zone-metrics --partitions 3 --replication-factor 1
-	@echo "\nKafka on localhost:9092, Prometheus metrics on localhost:9308/metrics.\nNext, in two terminals: make stream-run   and   make stream-produce"
+# ---------------------------------------------------------------- HBase + ZooKeeper (opt-in)
+# Separate compose project; never touches the default `docker compose up` stack.
+# Walkthrough: docs/hadoop/hbase.md
+HBASE := docker compose -f docker-compose.hbase.yml -p urbanflow-hbase
+HBASE_CLIENT := $(HBASE) run --rm -T hbase-client
+HBASE_GOLD := $(or $(URBANFLOW_DATA),data)/gold
 
-stream-produce: ## replay bronze trips into Kafka (RATE=events/s, LIMIT=trips, SKIP=trips already sent)
-	PYTHONPATH=src $(PY) -u -m urbanflow.stream.producer --rate $(RATE) --limit $(LIMIT) --skip $(SKIP)
+JMX_AGENT := docker/hbase/jmx-exporter/jmx_prometheus_javaagent.jar
+JMX_AGENT_URL := https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/1.0.1/jmx_prometheus_javaagent-1.0.1.jar
+JMX_AGENT_SHA256 := 7d61f737fd661610ccc14aea79764faa1ea94a340cbc8f0029b3d2edea3d80c1
 
-stream-run:   ## Spark Structured Streaming: 5-min windowed metrics per zone -> data/stream + Kafka
-	PYTHONPATH=src $(PY) -u -m urbanflow.stream.job $(STREAM_ARGS)
+$(JMX_AGENT):  # Prometheus JMX exporter java agent (~3 MB), mounted into every HBase/ZK JVM
+	curl -fsSL -o $@.tmp $(JMX_AGENT_URL)
+	echo "$(JMX_AGENT_SHA256)  $@.tmp" | shasum -a 256 -c -
+	mv $@.tmp $@
 
-stream-status: ## describe the topics and consumer-group lag
-	$(KAFKA_CLI)/kafka-topics.sh --bootstrap-server kafka:29092 --describe --exclude-internal
-	$(KAFKA_CLI)/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --all-groups
+hbase-up: $(JMX_AGENT)  ## start ZooKeeper + HBase master, regionserver, Thrift gateway
+	$(HBASE) up -d --wait
+	@echo "\nHBase master UI  http://localhost:16010   regionserver UI  http://localhost:16030"
+	@echo "Next: make hbase-load"
 
-stream-tail:  ## print the first 5 windowed results from the zone-metrics topic
-	$(KAFKA_CLI)/kafka-console-consumer.sh --bootstrap-server kafka:29092 --topic zone-metrics --from-beginning --max-messages 5 --property print.key=true
+hbase-load:   ## create the HBase tables and load data/gold into them
+	@test -d $(HBASE_GOLD)/demand_by_zone_hour || { echo "$(HBASE_GOLD) is empty: run make gold && make predict-grid first"; exit 1; }
+	$(HBASE_CLIENT) hbase shell -n /app/scripts/hbase/create_tables.rb
+	$(HBASE_CLIENT) python3 -m urbanflow.hbase.load
 
-stream-down:  ## stop the streaming stack (Kafka data and data/stream kept)
-	$(STREAM_COMPOSE) down
+hbase-query:  ## point gets, prefix/range scans and counts, from the HBase shell and Python
+	$(HBASE_CLIENT) hbase shell -n /app/scripts/hbase/demo_queries.rb
+	$(HBASE_CLIENT) python3 -m urbanflow.hbase.query demo
 
-stream-reset: ## stop it AND delete Kafka's volume, checkpoints and data/stream
-	$(STREAM_COMPOSE) down -v
-	rm -rf data/stream
+hbase-zk:     ## show what HBase keeps in ZooKeeper (master, regionservers, meta location)
+	$(HBASE_CLIENT) bash /app/scripts/hbase/zk_inspect.sh
+
+hbase-shell:  ## interactive HBase shell
+	$(HBASE) run --rm hbase-client hbase shell
+
+hbase-down:   ## stop the HBase stack (data volume kept)
+	$(HBASE) down
+
+hbase-clean:  ## stop the HBase stack and delete its HBase + ZooKeeper volumes
+	$(HBASE) down -v

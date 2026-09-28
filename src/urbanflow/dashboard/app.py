@@ -18,7 +18,11 @@ import plotly.io as pio
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from urbanflow import config                                     # noqa: E402
-from urbanflow.dashboard import live as live_view                # noqa: E402
+from urbanflow.dashboard.ai import groq_chat, load_dotenv        # noqa: E402
+
+# GROQ_API_KEY lives in the repo-root .env (gitignored). Docker Compose passes
+# it in as a real env var; `make dash` doesn't, so read it here too.
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 
 def _session_token() -> str:
@@ -186,38 +190,6 @@ def road_route(pu_lat: float, pu_lon: float, do_lat: float, do_lon: float):
         return [(pu_lat, pu_lon), (do_lat, do_lon)], False
 
 
-def groq_chat(messages: list[dict]) -> str | None:
-    """One HTTPS call to Groq's OpenAI-compatible chat endpoint via stdlib
-    urllib — no SDK dependency for what is otherwise a single POST request.
-    `messages` is the full conversation so far (system + history + new
-    question) — that's what gives it "memory": each call resends everything
-    said before, since Groq itself is stateless between calls.
-    Returns None (caller shows setup instructions) if no key is configured."""
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        return None
-    import urllib.request
-    model = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
-    body = json.dumps({
-        "model": model,
-        "messages": messages,
-        "temperature": 0.3,
-        # gpt-oss models spend some of this budget on an internal reasoning
-        # pass before the visible answer — too low and content comes back
-        # empty even though the request "succeeds".
-        "max_tokens": 600,
-    }).encode()
-    req = urllib.request.Request(
-        "https://api.groq.com/openai/v1/chat/completions", data=body, method="POST",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
-                 # Cloudflare (fronting Groq's API) blocks urllib's default
-                 # "Python-urllib/x.y" User-Agent as bot traffic (error 1010).
-                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"})
-    with urllib.request.urlopen(req, timeout=25) as resp:
-        data = json.loads(resp.read())
-    return data["choices"][0]["message"]["content"].strip()
-
-
 def _findings_facts() -> str:
     """Compile the real numbers already on screen elsewhere in this dashboard
     into a compact fact list — the only thing the AI is allowed to talk
@@ -231,11 +203,17 @@ def _findings_facts() -> str:
                      f"Average fare: ${d.avg_fare.mean():.2f}. Average trip duration: "
                      f"{d.avg_duration_min.mean():.1f} minutes.")
     if not t.empty and "is_card" in t.columns:
-        card = t[t.is_card].pct_trips_with_tip.mean()
-        cash = t[~t.is_card].pct_trips_with_tip.mean()
-        facts.append(f"Share of trips with a recorded tip: {card:.0f}% for card payments vs "
-                     f"{cash:.0f}% for cash (cash tips are never recorded in the source data, "
-                     f"which biases any all-trips tip average downward).")
+        def tipped(rows):   # trip-weighted, so a 13-trip borough doesn't count like Manhattan
+            return (rows.pct_trips_with_tip * rows.trips).sum() / rows.trips.sum()
+        card, cash = t[t.is_card.eq(True)], t[t.is_card.eq(False)]
+        if not card.empty and not cash.empty:
+            facts.append(f"Share of trips with a recorded tip: {tipped(card):.0f}% for card payments vs "
+                         f"{tipped(cash):.0f}% for cash (cash tips are never recorded in the source data, "
+                         f"which biases any all-trips tip average downward).")
+        elif t.is_card.isna().all():
+            # FHVHV has no payment type at all — is_card is null on every row
+            facts.append(f"Share of trips with a tip: {tipped(t):.0f}% (this dataset has no "
+                         f"card/cash split; app-based rides record tips on every payment).")
     if not s.empty:
         by_hr = s.groupby("pickup_hour").avg_speed_mph.mean()
         facts.append(f"Average speed ranges from {by_hr.min():.1f} mph at hour {int(by_hr.idxmin())} "
@@ -532,7 +510,7 @@ with geo:
 # ------------------------------------------------------------------ behaviour
 with beh:
     t = gold("tipping")
-    if not t.empty:
+    if not t.empty and t.is_card.notna().any():
         t = t.copy(); t["payment"] = t.is_card.map({True: "Card", False: "Cash"})
         st.plotly_chart(px.bar(t, x="pu_borough", y="pct_trips_with_tip", color="payment",
                                barmode="group", title="Share of trips with a recorded tip",
@@ -541,6 +519,13 @@ with beh:
         st.info("**Cash tips are never recorded.** Any 'average tip' over all trips is biased downward. "
                 "Reporting card and cash separately is the honest treatment — and a finding worth a "
                 "paragraph in the report.")
+    elif not t.empty:
+        st.plotly_chart(px.bar(t, x="pu_borough", y="pct_trips_with_tip",
+                               title="Share of trips with a tip",
+                               labels={"pu_borough": "", "pct_trips_with_tip": "% of trips"}),
+                        use_container_width=True)
+        st.info("This dataset (FHVHV, app-based rides) has no card/cash payment type, so there "
+                "is no cash-tip bias to correct — every tip is recorded.")
     s = gold("speed_by_hour")
     if not s.empty:
         st.plotly_chart(_area(px.line(s.groupby("pickup_hour", as_index=False).avg_speed_mph.mean(),

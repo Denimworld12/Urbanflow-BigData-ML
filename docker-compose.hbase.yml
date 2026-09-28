@@ -1,0 +1,142 @@
+# Opt-in HBase + ZooKeeper serving layer for the gold tables.
+# Not part of the default `docker compose up` — run it through the make targets:
+#   make hbase-up     start ZooKeeper, HMaster, RegionServer, Thrift gateway
+#   make hbase-load   create tables and load data/gold into HBase
+#   make hbase-query  point gets, prefix scans and counts (shell + Python)
+#   make hbase-down   stop everything (data volume kept; hbase-clean drops it)
+# Full walkthrough: docs/hadoop/hbase.md
+name: urbanflow-hbase
+
+x-hbase: &hbase
+  image: urbanflow-hbase:2.5.15
+  build:
+    context: .
+    dockerfile: docker/hbase/Dockerfile
+  networks: [hbase-net]
+  restart: unless-stopped
+
+# Every service mounts hbase-site.xml, so config edits apply on restart without
+# rebuilding the image, and the Prometheus JMX exporter (the jar is fetched by
+# `make hbase-up`). Each long-running JVM loads the agent and serves Prometheus
+# metrics on :7071/metrics.
+x-jmx-agent: &jmx-agent "-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=7071:/opt/jmx-exporter/config.yml"
+
+services:
+  # ZooKeeper as its own service (HBASE_MANAGES_ZK=false for every HBase role).
+  # It runs the ZooKeeper 3.8.6 server bundled in the HBase release, so the whole
+  # stack is one image; hbase.zookeeper.property.* in hbase-site.xml is its zoo.cfg.
+  zookeeper:
+    <<: *hbase
+    hostname: zookeeper
+    command: ["hbase", "zookeeper"]
+    environment:
+      HBASE_HEAPSIZE: "256m"
+      HBASE_ZOOKEEPER_OPTS: *jmx-agent
+    ports:
+      - "127.0.0.1:${HBASE_ZK_METRICS_PORT:-17074}:7071"   # Prometheus metrics (JMX exporter)
+      - "127.0.0.1:${HBASE_ZK_PORT:-12181}:2181"
+    volumes:
+      - ./docker/hbase/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro
+      - ./docker/hbase/jmx-exporter:/opt/jmx-exporter:ro
+      - zk-data:/data/zookeeper
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  hbase-master:
+    <<: *hbase
+    hostname: hbase-master
+    command: ["hbase", "master", "start"]
+    environment:
+      HBASE_HEAPSIZE: "1g"
+      HBASE_MASTER_OPTS: *jmx-agent
+    ports:
+      - "127.0.0.1:${HBASE_MASTER_METRICS_PORT:-17071}:7071"   # Prometheus metrics (JMX exporter)
+      - "127.0.0.1:${HBASE_MASTER_UI_PORT:-16010}:16010"   # web UI, /jmx (JSON metrics)
+    volumes:
+      - ./docker/hbase/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro
+      - ./docker/hbase/jmx-exporter:/opt/jmx-exporter:ro
+      - hbase-data:/data
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      # Healthy only once this master is active AND a regionserver has checked in.
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:16010/jmx?qry=Hadoop:service=HBase,name=Master,sub=Server' | grep -Eq '\"numRegionServers\": *[1-9]'"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+
+  hbase-regionserver:
+    <<: *hbase
+    hostname: hbase-regionserver
+    command: ["hbase", "regionserver", "start"]
+    environment:
+      HBASE_HEAPSIZE: "1g"
+      HBASE_REGIONSERVER_OPTS: *jmx-agent
+    ports:
+      - "127.0.0.1:${HBASE_REGIONSERVER_METRICS_PORT:-17072}:7071"   # Prometheus metrics (JMX exporter)
+      - "127.0.0.1:${HBASE_RS_UI_PORT:-16030}:16030"       # web UI, /jmx (JSON metrics)
+    volumes:
+      - ./docker/hbase/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro
+      - ./docker/hbase/jmx-exporter:/opt/jmx-exporter:ro
+      - hbase-data:/data
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:16030/jmx >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+
+  # Thrift gateway: lets non-Java clients (Python happybase) talk to HBase.
+  hbase-thrift:
+    <<: *hbase
+    hostname: hbase-thrift
+    command: ["hbase", "thrift", "start", "-p", "9090", "--infoport", "9095"]
+    environment:
+      HBASE_HEAPSIZE: "512m"
+      HBASE_THRIFT_OPTS: *jmx-agent
+    ports:
+      - "127.0.0.1:${HBASE_THRIFT_METRICS_PORT:-17073}:7071"   # Prometheus metrics (JMX exporter)
+      - "127.0.0.1:${HBASE_THRIFT_PORT:-19090}:9090"       # Thrift API (happybase)
+      - "127.0.0.1:${HBASE_THRIFT_UI_PORT:-19095}:9095"    # info server, /jmx (JSON metrics)
+    volumes:
+      - ./docker/hbase/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro
+      - ./docker/hbase/jmx-exporter:/opt/jmx-exporter:ro
+    depends_on:
+      hbase-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9090"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # "Edge node": HBase shell + Python client, run on demand by the make targets
+  # (`docker compose run --rm hbase-client ...`), never started by `up`.
+  hbase-client:
+    <<: *hbase
+    restart: "no"
+    profiles: [tools]
+    environment:
+      HBASE_HEAPSIZE: "512m"
+      HBASE_THRIFT_HOST: hbase-thrift
+      HBASE_THRIFT_PORT: "9090"
+    volumes:
+      - ./docker/hbase/hbase-site.xml:/opt/hbase/conf/hbase-site.xml:ro
+      - ./src:/app/src:ro
+      - ./scripts/hbase:/app/scripts/hbase:ro
+      - ${URBANFLOW_DATA:-./data}/gold:/app/data/gold:ro
+
+networks:
+  hbase-net:
+    name: urbanflow-hbase-net   # stable name so the monitoring stack can attach
+
+volumes:
+  hbase-data:
+  zk-data:
