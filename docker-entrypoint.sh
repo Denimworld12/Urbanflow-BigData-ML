@@ -23,9 +23,16 @@ if [ ! -f "data/gold/benchmarks.json" ]; then
   fi
   make gold DATASET="$DATASET"
   make model DATASET="$DATASET"
+  make predict-grid DATASET="$DATASET"
   make bench DATASET="$DATASET"
 else
   echo "==> pipeline already ran (data/gold/benchmarks.json exists), skipping rebuild"
+  # Volumes built before predict-grid joined the pipeline have a model but no
+  # Predict-tab grid; fill just that gap rather than rebuilding everything.
+  if [ ! -d "data/gold/duration_predictions" ] && [ -d "data/models/duration_gbt" ]; then
+    echo "==> Predict tab grid missing, scoring it from the saved model"
+    make predict-grid DATASET="$DATASET"
+  fi
 fi
 
 echo "==> make ${*:-dash}"

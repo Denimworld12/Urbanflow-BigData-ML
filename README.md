@@ -38,6 +38,8 @@ make check          # verifies Java + Spark actually start
 make synth           # 200k synthetic trips, TLC-shaped, with realistic dirt
 make curate          # bronze -> silver
 make gold             # the six answer tables
+make model            # trip-duration model vs a naive baseline
+make predict-grid     # pre-score the model for the dashboard's Predict tab
 make test             # unit tests — run this after touching curate/
 make dash             # dashboard at localhost:8501
 ```
@@ -60,7 +62,7 @@ docker compose up --build
 
 That single command builds the image (Java 21 + Python + pinned deps baked
 in), downloads a real month of taxi data (Tier 0, ~55 MB), runs the whole
-pipeline — curate → gold → model → bench — and brings the dashboard up at
+pipeline — curate → gold → model → predict-grid → bench — and brings the dashboard up at
 [localhost:8501](http://localhost:8501). Data persists in a Docker volume, so
 the second `docker compose up` skips straight to the dashboard.
 
@@ -80,11 +82,36 @@ make ingest TIER=0     # 1 month yellow      ~3.5M rows,  55 MB
 make ingest TIER=1     # 24 months y+green  ~85M rows,  1.4 GB
 make ingest TIER=2     # 12 months FHVHV   ~230M rows,  5.8 GB
 make curate TIER=1
-make gold && make model && make bench
+make gold && make model && make predict-grid && make bench
 ```
 
 Develop on Tier 0 so mistakes cost 20 seconds. Report from Tier 1.
 Run Tier 2 once, in week 4, for the benchmark chapter.
+
+## AI / ML
+
+Two pieces, and they do different jobs:
+
+* **Trip-duration model** (`make model`, `analyze/model.py`): a Spark MLlib
+  gradient-boosted-trees regressor that predicts trip minutes from distance,
+  pickup hour, day of week, passenger count (yellow/green only) and pickup/dropoff
+  borough. It uses a time-based 80/20 split (train on earlier trips, test on
+  later ones) and is scored against a naive `distance ÷ average speed`
+  baseline. On the real Tier 2 run (243.5M FHVHV trips) it cut RMSE from 16.4
+  to 7.1 minutes (56.8% better, R² 0.765). Metrics land in
+  `data/gold/model_results.json`, the model in `data/models/duration_gbt`.
+* **Predict tab** (`make predict-grid`, `analyze/predict_grid.py`): Spark scores
+  the saved model once over every combination the tab offers (51,840 trips)
+  into `data/gold/duration_predictions`. The dashboard then does a lookup, so
+  no Spark runs in the dashboard process.
+* **AI summary + chat** (`dashboard/ai.py`): sends a short list of facts
+  already computed by the pipeline to Groq (`openai/gpt-oss-20b`) and shows
+  the plain-English answer. It never sees the raw data. To enable it, copy
+  `.env.example` to `.env` and set `GROQ_API_KEY` (both `make dash` and Docker
+  read it). Without a key, the box says so and everything else still works.
+
+How it all fits together, the metrics, and likely viva questions:
+[`docs/ai-ml.md`](docs/ai-ml.md).
 
 ## Running it on Windows, macOS or Linux
 
@@ -125,8 +152,10 @@ src/urbanflow/
   curate/clean.py      S2 silver — clean, broadcast-join zones, partition
   analyze/gold.py      S3 gold — six answer tables
   analyze/model.py     S4 duration model with a naive baseline
+  analyze/predict_grid.py  S4b pre-scores the model for the Predict tab
   analyze/benchmark.py S5 format / partitioning / join / core-scaling
   dashboard/app.py     S6 Streamlit over DuckDB — no Spark in this process
+  dashboard/ai.py      the Groq call behind the AI summary + chat
 schema/curated.md      THE CONTRACT between the three of you
 ```
 
