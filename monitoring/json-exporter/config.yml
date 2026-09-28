@@ -1,0 +1,153 @@
+# json-exporter modules: one per daemon type. Prometheus calls
+#   http://json-exporter:7979/probe?module=<module>&target=<daemon JSON URL>
+# and each module below picks fields out of that daemon's JSON with JSONPath.
+#
+# Hadoop and HBase daemons all serve the same /jmx servlet: a JSON document
+# {"beans": [ {"name": "<JMX bean name>", <attribute>: <value>, ...}, ... ]}.
+# The filters select one bean by its exact JMX name.
+modules:
+
+  # --- HDFS NameNode (web UI :9870/jmx) -------------------------------------
+  namenode:
+    metrics:
+      - name: hdfs
+        type: object
+        help: HDFS NameNode FSNamesystemState bean
+        path: '{.beans[?(@.name=="Hadoop:service=NameNode,name=FSNamesystemState")]}'
+        values:
+          live_datanodes: '{.NumLiveDataNodes}'
+          dead_datanodes: '{.NumDeadDataNodes}'
+          capacity_total_bytes: '{.CapacityTotal}'
+          capacity_used_bytes: '{.CapacityUsed}'
+          capacity_remaining_bytes: '{.CapacityRemaining}'
+          files_total: '{.FilesTotal}'
+          blocks_total: '{.BlocksTotal}'
+          under_replicated_blocks: '{.UnderReplicatedBlocks}'
+      - name: hdfs
+        type: object
+        help: HDFS NameNode FSNamesystem bean
+        path: '{.beans[?(@.name=="Hadoop:service=NameNode,name=FSNamesystem")]}'
+        values:
+          missing_blocks: '{.MissingBlocks}'
+          corrupt_blocks: '{.CorruptBlocks}'
+      - &jvm_heap
+        name: jvm_heap_used_bytes
+        help: JVM heap in use
+        path: '{.beans[?(@.name=="java.lang:type=Memory")].HeapMemoryUsage.used}'
+
+  # --- HDFS DataNode (web UI :9864/jmx) -------------------------------------
+  datanode:
+    metrics:
+      - name: hdfs_datanode
+        type: object
+        help: HDFS DataNode FSDatasetState bean
+        path: '{.beans[?(@.modelerType=="org.apache.hadoop.hdfs.server.datanode.fsdataset.impl.FsDatasetImpl")]}'
+        values:
+          capacity_bytes: '{.Capacity}'
+          dfs_used_bytes: '{.DfsUsed}'
+          remaining_bytes: '{.Remaining}'
+          failed_volumes: '{.NumFailedVolumes}'
+      - *jvm_heap
+
+  # --- YARN ResourceManager (web UI :8088/jmx) ------------------------------
+  resourcemanager:
+    metrics:
+      - name: yarn
+        type: object
+        help: YARN root queue metrics
+        path: '{.beans[?(@.name=="Hadoop:service=ResourceManager,name=QueueMetrics,q0=root")]}'
+        values:
+          apps_submitted_total: '{.AppsSubmitted}'
+          apps_running: '{.AppsRunning}'
+          apps_pending: '{.AppsPending}'
+          apps_completed_total: '{.AppsCompleted}'
+          apps_failed_total: '{.AppsFailed}'
+          apps_killed_total: '{.AppsKilled}'
+          allocated_mb: '{.AllocatedMB}'
+          available_mb: '{.AvailableMB}'
+          allocated_vcores: '{.AllocatedVCores}'
+          available_vcores: '{.AvailableVCores}'
+          allocated_containers: '{.AllocatedContainers}'
+      - name: yarn
+        type: object
+        help: YARN cluster metrics
+        path: '{.beans[?(@.name=="Hadoop:service=ResourceManager,name=ClusterMetrics")]}'
+        values:
+          active_nodemanagers: '{.NumActiveNMs}'
+          lost_nodemanagers: '{.NumLostNMs}'
+          unhealthy_nodemanagers: '{.NumUnhealthyNMs}'
+      - *jvm_heap
+
+  # --- YARN NodeManager (web UI :8042/jmx) ----------------------------------
+  nodemanager:
+    metrics:
+      - name: yarn_nodemanager
+        type: object
+        help: YARN NodeManager metrics
+        path: '{.beans[?(@.name=="Hadoop:service=NodeManager,name=NodeManagerMetrics")]}'
+        values:
+          containers_running: '{.ContainersRunning}'
+          containers_launched_total: '{.ContainersLaunched}'
+          containers_completed_total: '{.ContainersCompleted}'
+          containers_failed_total: '{.ContainersFailed}'
+          allocated_gb: '{.AllocatedGB}'
+          available_gb: '{.AvailableGB}'
+      - *jvm_heap
+
+  # --- any other Hadoop-family JVM: JobHistory server, HBase Thrift --------
+  # Liveness comes from `up`; this adds heap so a leak is visible.
+  jvm:
+    metrics:
+      - *jvm_heap
+
+  # --- HBase Master (web UI :16010/jmx) -------------------------------------
+  hbase_master:
+    metrics:
+      - name: hbase_master
+        type: object
+        help: HBase Master server bean
+        path: '{.beans[?(@.name=="Hadoop:service=HBase,name=Master,sub=Server")]}'
+        values:
+          region_servers: '{.numRegionServers}'
+          dead_region_servers: '{.numDeadRegionServers}'
+          average_load: '{.averageLoad}'
+          cluster_requests_total: '{.clusterRequests}'
+      - name: hbase_master_regions_in_transition
+        help: Regions currently moving between region servers
+        path: '{.beans[?(@.name=="Hadoop:service=HBase,name=Master,sub=AssignmentManager")].ritCount}'
+      - *jvm_heap
+
+  # --- HBase RegionServer (web UI :16030/jmx) -------------------------------
+  # In standalone HBase the region server lives in the Master's JVM, so this
+  # module also works against :16010.
+  hbase_regionserver:
+    metrics:
+      - name: hbase_regionserver
+        type: object
+        help: HBase RegionServer server bean
+        path: '{.beans[?(@.name=="Hadoop:service=HBase,name=RegionServer,sub=Server")]}'
+        values:
+          regions: '{.regionCount}'
+          stores: '{.storeCount}'
+          store_files: '{.storeFileCount}'
+          store_file_size_bytes: '{.storeFileSize}'
+          memstore_size_bytes: '{.memStoreSize}'
+          read_requests_total: '{.readRequestCount}'
+          write_requests_total: '{.writeRequestCount}'
+          requests_total: '{.totalRequestCount}'
+      - *jvm_heap
+
+  # --- ZooKeeper (AdminServer :8080/commands/mntr) --------------------------
+  # The same numbers as the `mntr` four-letter word, served as flat JSON.
+  zookeeper:
+    metrics:
+      - name: zookeeper
+        type: object
+        help: ZooKeeper mntr output
+        path: '{@}'
+        values:
+          znodes: '{.znode_count}'
+          alive_connections: '{.num_alive_connections}'
+          outstanding_requests: '{.outstanding_requests}'
+          avg_latency_ms: '{.avg_latency}'
+          watches: '{.watch_count}'

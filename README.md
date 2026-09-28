@@ -160,6 +160,8 @@ src/urbanflow/
   dashboard/app.py     S6 Streamlit over DuckDB — no Spark in this process
   dashboard/ai.py      the Groq call behind the AI summary + chat
 schema/curated.md      THE CONTRACT between the three of you
+monitoring/            Prometheus scrape config + alerts, Grafana provisioning + dashboards
+scripts/build_dashboards.py   generates the Grafana dashboard JSON
 ```
 
 ## Architecture rules that matter

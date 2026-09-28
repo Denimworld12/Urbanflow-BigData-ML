@@ -1,0 +1,54 @@
+# Alerting rules. There is no Alertmanager in this demo stack: firing alerts
+# are visible at http://localhost:9090/alerts and on the Overview dashboard.
+groups:
+  - name: urbanflow
+    rules:
+      - alert: TargetDown
+        # Info, not critical: a stack that simply is not started looks the same.
+        expr: up == 0
+        for: 2m
+        labels: {severity: info}
+        annotations:
+          summary: "{{ $labels.stack }}/{{ $labels.component }} is not answering scrapes"
+
+      - alert: HdfsDeadDataNodes
+        expr: hdfs_dead_datanodes > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "HDFS reports {{ $value }} dead DataNode(s)"
+
+      - alert: HdfsMissingBlocks
+        expr: hdfs_missing_blocks > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "HDFS has {{ $value }} missing block(s): some file data is unreadable"
+
+      - alert: HdfsCapacityHigh
+        expr: hdfs_capacity_used_bytes / hdfs_capacity_total_bytes > 0.85
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "HDFS is {{ $value | humanizePercentage }} full"
+
+      - alert: YarnNoNodeManagers
+        expr: yarn_active_nodemanagers == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "YARN ResourceManager has no active NodeManager: jobs cannot run"
+
+      - alert: HbaseDeadRegionServers
+        expr: hbase_master_dead_region_servers > 0
+        for: 1m
+        labels: {severity: critical}
+        annotations:
+          summary: "HBase Master reports {{ $value }} dead RegionServer(s)"
+
+      - alert: KafkaConsumerLagHigh
+        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 10000
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Consumer group {{ $labels.consumergroup }} is {{ $value }} messages behind on {{ $labels.topic }}"
