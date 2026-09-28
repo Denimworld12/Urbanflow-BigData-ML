@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!-- UrbanFlow HBase config, shared by the master, regionserver and thrift containers. -->
+<configuration>
+  <!-- Separate master and regionserver processes, coordinated through an external
+       ZooKeeper, instead of HBase's all-in-one standalone mode. -->
+  <property>
+    <name>hbase.cluster.distributed</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>hbase.zookeeper.quorum</name>
+    <value>zookeeper</value>
+  </property>
+  <property>
+    <name>hbase.zookeeper.property.clientPort</name>
+    <value>2181</value>
+  </property>
+  <!-- Server-side settings for the `zookeeper` service (`hbase zookeeper` turns every
+       hbase.zookeeper.property.X into zoo.cfg's X). -->
+  <property>
+    <name>hbase.zookeeper.property.dataDir</name>
+    <value>/data/zookeeper</value>
+  </property>
+  <property>
+    <name>hbase.zookeeper.property.4lw.commands.whitelist</name>
+    <value>srvr,ruok,mntr,stat,conf</value>
+  </property>
+  <property>
+    <name>zookeeper.znode.parent</name>
+    <value>/hbase</value>
+  </property>
+
+  <!-- Storage: a Docker volume mounted into both master and regionserver.
+       On a real cluster this is hdfs://namenode:8020/hbase (docs/hadoop/hbase.md). -->
+  <property>
+    <name>hbase.rootdir</name>
+    <value>file:///data/hbase</value>
+  </property>
+  <property>
+    <name>hbase.tmp.dir</name>
+    <value>/tmp/hbase</value>
+  </property>
+  <!-- A local filesystem cannot guarantee hflush/hsync the way HDFS does; these two
+       settings let HBase run on it anyway. Remove both when rootdir is on HDFS. -->
+  <property>
+    <name>hbase.unsafe.stream.capability.enforce</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>hbase.wal.provider</name>
+    <value>filesystem</value>
+  </property>
+</configuration>
