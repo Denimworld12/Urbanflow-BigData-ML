@@ -15,3 +15,5 @@ report/*.pdf
 .env
 .claude/
 CLAUDE.md
+# downloaded by `make hbase-up` (docker/hbase/jmx-exporter), never committed
+docker/hbase/jmx-exporter/*.jar

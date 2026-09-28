@@ -1,7 +1,10 @@
 # UrbanFlow
 
-Batch analytics over NYC TLC trip records with Apache Spark, running in
-**local mode on a single laptop** — no cluster, no Hadoop, no Cassandra.
+Batch analytics over NYC TLC trip records with Apache Spark. The core
+pipeline runs in **local mode on a single laptop**, with no cluster needed.
+Opt-in Hadoop-ecosystem stacks run next to it in Docker (see
+[Big Data ecosystem](#big-data-ecosystem)): HBase + ZooKeeper serve the gold
+tables by key.
 BDA semester project · three members · six weeks · 8 GB laptops.
 
 Six stages, bronze to dashboard: ingest → curate → gold → model → benchmark →
