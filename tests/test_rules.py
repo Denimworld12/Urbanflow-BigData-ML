@@ -5,19 +5,9 @@ an immediate answer about whether it still behaves. Run: make test
 """
 from datetime import datetime
 import pytest
-from pyspark.sql import SparkSession, Row
+from pyspark.sql import Row
 from urbanflow.curate.rules import rules
 from urbanflow.curate.clean import derive
-
-
-@pytest.fixture(scope="session")
-def spark():
-    s = (SparkSession.builder.appName("test").master("local[2]")
-         .config("spark.sql.shuffle.partitions", "2")
-         .config("spark.ui.enabled", "false").getOrCreate())
-    s.sparkContext.setLogLevel("ERROR")
-    yield s
-    s.stop()
 
 
 def _row(**kw):
