@@ -3,11 +3,17 @@
 PY := .venv/bin/python
 TIER ?= 0
 DATASET ?= yellow
+# real-time path (docker-compose.streaming.yml)
+STREAM_COMPOSE := docker compose -p urbanflow-streaming -f docker-compose.streaming.yml
+KAFKA_CLI := $(STREAM_COMPOSE) exec -T kafka /opt/kafka/bin
+RATE ?= 2000
+LIMIT ?= 300000
+SKIP ?= 0
 
 .PHONY: help setup check synth ingest curate gold model predict-grid bench dash all clean-data test
 
 help:
-	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-15s\033[0m %s\n", $$1, $$2}'
 
 setup:        ## create venv and install pinned dependencies
 	python3 -m venv .venv

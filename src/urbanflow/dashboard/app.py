@@ -292,8 +292,8 @@ with st.container(border=True):
         _ask(question)
         st.rerun()
 
-predict, explore, kpi, geo, beh, perf = st.tabs(
-    ["Predict", "Explore", "Overview", "Geography", "Behaviour", "Performance"])
+predict, explore, kpi, geo, beh, perf, live = st.tabs(
+    ["Predict", "Explore", "Overview", "Geography", "Behaviour", "Performance", "Live"])
 
 # ------------------------------------------------------------------ explore
 with explore:
@@ -720,3 +720,7 @@ with predict:
                     st.info(f"**If the time is flexible:** {int(best.pickup_hour):02d}:00 is the "
                            f"fastest hour for this exact route — about {saved:.0f} minutes quicker "
                            f"than your {hour:02d}:00 pick.")
+
+# ------------------------------------------------------------------ live (optional streaming path)
+with live:
+    live_view.render(con)

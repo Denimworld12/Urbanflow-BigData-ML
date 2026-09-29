@@ -16,9 +16,10 @@ GOLD     = DATA_ROOT / "gold"       # gold   — small answer tables
 BENCH    = DATA_ROOT / "bench"      # benchmark scratch + results
 MODELS   = DATA_ROOT / "models"
 SPILL    = DATA_ROOT / "spill"      # spark.local.dir
+STREAM   = DATA_ROOT / "stream"     # real-time path: windowed metrics + checkpoints
 MANIFEST = RAW / "manifest.csv"
 
-for _p in (RAW, CURATED, GOLD, BENCH, MODELS, SPILL):
+for _p in (RAW, CURATED, GOLD, BENCH, MODELS, SPILL, STREAM):
     _p.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------- source
@@ -35,6 +36,13 @@ TS_COLS = {
     "fhvhv":  ("pickup_datetime", "dropoff_datetime"),
     "fhv":    ("pickup_datetime", "dropOff_datetime"),
 }
+
+# ---------------------------------------------------------------- streaming
+# Kafka broker from docker-compose.streaming.yml. On the host it is
+# localhost:9092; inside that compose network it is kafka:29092.
+KAFKA_BOOTSTRAP = os.environ.get("URBANFLOW_KAFKA", "localhost:9092")
+TRIPS_TOPIC     = "trips"          # raw trip events in (producer -> Spark)
+METRICS_TOPIC   = "zone-metrics"   # windowed metrics out (Spark -> anyone)
 
 # ---------------------------------------------------------------- tiers
 # Develop on TIER 0. Report from TIER 1. Benchmark once on TIER 2.
