@@ -17,3 +17,5 @@ report/*.pdf
 CLAUDE.md
 # downloaded by `make hbase-up` (docker/hbase/jmx-exporter), never committed
 docker/hbase/jmx-exporter/*.jar
+# downloaded by scripts/hadoop/fetch-jars.sh (`make hadoop-up`), never committed
+hadoop/lib/*.jar

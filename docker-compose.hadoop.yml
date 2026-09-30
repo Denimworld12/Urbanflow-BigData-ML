@@ -1,0 +1,180 @@
+# UrbanFlow's opt-in Hadoop ecosystem: HDFS + YARN + MapReduce + Hive.
+# This does NOT replace docker-compose.yml (Spark + dashboard); it runs beside it.
+#
+#   make hadoop-up      # start everything (see Makefile for the other hadoop-* targets)
+#   make hadoop-down    # stop it, keep the HDFS + metastore volumes
+#
+# Always run through the Makefile or with `-p urbanflow-hadoop`, e.g.
+#   docker compose -p urbanflow-hadoop -f docker-compose.hadoop.yml ps
+#
+# Host ports are offset from the Hadoop defaults (9870 -> 19870, ...) so they
+# never collide with another Hadoop/HBase stack on the same machine; override
+# any of them with the UF_*_PORT variables below.
+
+x-hadoop: &hadoop
+  image: apache/hadoop:3.4.1
+  platform: linux/amd64          # the official image is amd64-only; runs under emulation on Apple silicon
+  networks: [urbanflow-hadoop]
+  volumes:
+    - ./hadoop/conf/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+    - ./hadoop/conf/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+    - ./hadoop/conf/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
+    - ./hadoop/conf/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro
+  environment: &hadoop-env
+    HADOOP_HEAPSIZE_MAX: 1g
+    # Java 8 starts child processes with vfork() by default. Under amd64
+    # emulation on Apple silicon (Rosetta) that child can hang before exec,
+    # freezing the NodeManager (web UI and container launches). fork() is safe
+    # everywhere; mapred-site.xml sets the same for the task JVMs.
+    HADOOP_OPTS: -Djdk.lang.Process.launchMechanism=FORK
+
+x-hive: &hive
+  image: apache/hive:4.0.1
+  networks: [urbanflow-hadoop]
+
+services:
+  # ------------------------------------------------------------------ HDFS
+  namenode:                       # HDFS master: the file-system namespace + block map
+    <<: *hadoop
+    hostname: namenode
+    user: root                    # so it can write the fresh named volume
+    command: ["hdfs", "namenode"]
+    environment:
+      <<: *hadoop-env
+      ENSURE_NAMENODE_DIR: /data/hdfs/namenode   # format HDFS on first start only
+    volumes:
+      - ./hadoop/conf/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/conf/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - ./hadoop/conf/yarn-site.xml:/opt/hadoop/etc/hadoop/yarn-site.xml:ro
+      - ./hadoop/conf/mapred-site.xml:/opt/hadoop/etc/hadoop/mapred-site.xml:ro
+      - namenode:/data/hdfs
+      - ./data:/urbanflow-data:ro                 # the local medallion layers, loaded by `make hadoop-load`
+      - ./scripts/hadoop:/opt/urbanflow/scripts:ro
+      - ./hadoop/mapreduce:/opt/urbanflow/mapreduce:ro
+    ports:
+      - "127.0.0.1:${UF_NAMENODE_UI_PORT:-19870}:9870"
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -safemode get | grep -q OFF"]
+      interval: 10s
+      timeout: 20s
+      retries: 30
+      start_period: 30s
+
+  datanode:                       # HDFS worker: stores the actual 128 MB blocks
+    <<: *hadoop
+    hostname: datanode
+    user: root
+    command: ["hdfs", "datanode"]
+    volumes:
+      - ./hadoop/conf/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/conf/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - datanode:/data/hdfs
+    depends_on: [namenode]
+
+  # ------------------------------------------------------------------ YARN
+  resourcemanager:                # YARN master: schedules containers on NodeManagers
+    <<: *hadoop
+    hostname: resourcemanager
+    command: ["yarn", "resourcemanager"]
+    ports:
+      - "127.0.0.1:${UF_RESOURCEMANAGER_UI_PORT:-18088}:8088"
+    depends_on:
+      namenode: {condition: service_healthy}
+
+  nodemanager:                    # YARN worker: runs map/reduce tasks in containers
+    <<: *hadoop
+    hostname: nodemanager
+    command: ["yarn", "nodemanager"]
+    depends_on: [resourcemanager]
+
+  historyserver:                  # MapReduce JobHistory: counters + logs of finished jobs
+    <<: *hadoop
+    hostname: historyserver
+    command: ["mapred", "historyserver"]
+    ports:
+      - "127.0.0.1:${UF_HISTORY_UI_PORT:-19888}:19888"
+    depends_on:
+      namenode: {condition: service_healthy}
+
+  # ------------------------------------------------------------------ Hive
+  hive-metastore-db:              # Postgres: stores Hive's catalogue (schemas, partitions, locations) - never the data
+    image: ${UF_METASTORE_DB_IMAGE:-postgres:16.4-alpine}
+    hostname: hive-metastore-db
+    networks: [urbanflow-hadoop]
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive     # demo-only credential, reachable only inside the compose network
+    volumes:
+      - metastore-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d metastore"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  hive-metastore:                 # Hive Metastore service (Thrift :9083) in front of Postgres
+    <<: *hive
+    hostname: hive-metastore
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres         # entrypoint runs `schematool -initOrUpgradeSchema` against Postgres
+      HIVE_CUSTOM_CONF_DIR: /hive-custom-conf
+      HADOOP_CONF_DIR: /opt/hive/conf   # so `docker compose exec` shells (hdfs, beeline) see the cluster too
+      SERVICE_OPTS: >-
+        -Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver
+        -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://hive-metastore-db:5432/metastore
+        -Djavax.jdo.option.ConnectionUserName=hive
+        -Djavax.jdo.option.ConnectionPassword=hive
+        -javaagent:/opt/jmx/jmx_prometheus_javaagent.jar=9404:/opt/jmx/hive-jmx-exporter.yml
+    volumes: &hive-volumes
+      - ./hive/conf/hive-site.xml:/hive-custom-conf/hive-site.xml:ro
+      - ./hive/conf/tez-site.xml:/hive-custom-conf/tez-site.xml:ro
+      - ./scripts/hadoop:/opt/urbanflow/scripts:ro
+      - ./hadoop/conf/core-site.xml:/hive-custom-conf/core-site.xml:ro
+      - ./hadoop/conf/hdfs-site.xml:/hive-custom-conf/hdfs-site.xml:ro
+      - ./hadoop/conf/yarn-site.xml:/hive-custom-conf/yarn-site.xml:ro
+      - ./hadoop/conf/mapred-site.xml:/hive-custom-conf/mapred-site.xml:ro
+      - ./hadoop/lib/postgresql.jar:/opt/hive/lib/postgresql.jar:ro
+      - ./hadoop/lib/jmx_prometheus_javaagent.jar:/opt/jmx/jmx_prometheus_javaagent.jar:ro
+      - ./hadoop/jmx/hive-jmx-exporter.yml:/opt/jmx/hive-jmx-exporter.yml:ro
+      - ./hive/queries:/opt/urbanflow/hive:ro
+    depends_on:
+      hive-metastore-db: {condition: service_healthy}
+      namenode: {condition: service_healthy}
+
+  hiveserver2:                    # HiveServer2: JDBC/beeline endpoint, compiles HiveQL to Tez DAGs on YARN
+    <<: *hive
+    hostname: hiveserver2
+    environment:
+      SERVICE_NAME: hiveserver2
+      IS_RESUME: "true"           # the metastore service owns the schema; HS2 must not init it
+      HIVESERVER2_PID_DIR: /run/hive   # on tmpfs: a stale pid file would block `docker restart`
+      HIVE_CUSTOM_CONF_DIR: /hive-custom-conf
+      HADOOP_CONF_DIR: /opt/hive/conf   # so `docker compose exec` shells (hdfs, beeline) see the cluster too
+      SERVICE_OPTS: >-
+        -javaagent:/opt/jmx/jmx_prometheus_javaagent.jar=9404:/opt/jmx/hive-jmx-exporter.yml
+    volumes: *hive-volumes
+    tmpfs:
+      - /run/hive:mode=1777
+    ports:
+      - "127.0.0.1:${UF_HIVE_JDBC_PORT:-20000}:10000"
+      - "127.0.0.1:${UF_HIVE_UI_PORT:-20002}:10002"
+    healthcheck:
+      test: ["CMD-SHELL", "beeline -u jdbc:hive2://localhost:10000/ -n hive -e 'select 1' >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 60s
+      retries: 20
+      start_period: 60s
+    depends_on:
+      hive-metastore: {condition: service_started}
+      resourcemanager: {condition: service_started}
+
+networks:
+  urbanflow-hadoop:
+    name: urbanflow-hadoop        # stable name, so a monitoring stack can join it and scrape the endpoints
+
+volumes:
+  namenode:
+  datanode:
+  metastore-db:

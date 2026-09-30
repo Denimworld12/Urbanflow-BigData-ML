@@ -10,7 +10,9 @@ RATE ?= 2000
 LIMIT ?= 300000
 SKIP ?= 0
 
-.PHONY: help setup check synth ingest curate gold model predict-grid bench dash all clean-data test
+.PHONY: help setup check synth ingest curate gold model predict-grid bench dash all clean-data test \
+        hbase-up hbase-load hbase-query hbase-zk hbase-shell hbase-down hbase-clean \
+        hadoop-up hadoop-status hadoop-load hive-tables hadoop-mr hive-query hadoop-demo hadoop-down hadoop-clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-15s\033[0m %s\n", $$1, $$2}'
@@ -98,3 +100,50 @@ hbase-down:   ## stop the HBase stack (data volume kept)
 
 hbase-clean:  ## stop the HBase stack and delete its HBase + ZooKeeper volumes
 	$(HBASE) down -v
+
+# ---------------------------------------------------------------- Hadoop ecosystem (opt-in)
+# HDFS + YARN + MapReduce + Hive in Docker, beside (not instead of) the Spark
+# pipeline above. Needs the local data/ layers first (make synth curate gold,
+# or the ingest path). Walkthrough: docs/hadoop/README.md
+HADOOP := docker compose -p urbanflow-hadoop -f docker-compose.hadoop.yml
+TIER2_GOLD ?=
+
+hadoop-up:     ## start HDFS, YARN, MapReduce history, Hive metastore (Postgres) + HiveServer2
+	scripts/hadoop/fetch-jars.sh
+	$(HADOOP) up -d --wait
+	$(HADOOP) exec -T namenode bash /opt/urbanflow/scripts/hdfs-init.sh
+	$(HADOOP) exec -T hiveserver2 bash /opt/urbanflow/scripts/tez-upload.sh
+	@echo "\n  NameNode UI        http://localhost:$${UF_NAMENODE_UI_PORT:-19870}"
+	@echo "  YARN ResourceMgr   http://localhost:$${UF_RESOURCEMANAGER_UI_PORT:-18088}"
+	@echo "  MR JobHistory      http://localhost:$${UF_HISTORY_UI_PORT:-19888}"
+	@echo "  HiveServer2 UI     http://localhost:$${UF_HIVE_UI_PORT:-20002}"
+	@echo "  Next: make hadoop-demo  (or hadoop-load, hive-tables, hadoop-mr, hive-query)"
+
+hadoop-status: ## show cluster health: containers, HDFS capacity, YARN nodes, recent jobs
+	$(HADOOP) ps --format 'table {{.Service}}\t{{.Status}}'
+	$(HADOOP) exec -T namenode bash -c 'hdfs dfsadmin -report 2>/dev/null | sed -n "1,6p;/^Live datanodes/p"; yarn node -list 2>/dev/null | tail -n +2; yarn application -list -appStates ALL 2>/dev/null | tail -n +2 | tail -6'
+
+hadoop-load:   ## copy the yellow data/ bronze, silver, gold into HDFS under /urbanflow (TIER2_GOLD=path adds the real Tier 2 gold)
+	@if [ -n "$(TIER2_GOLD)" ]; then \
+	  echo "==> copying Tier 2 gold from $(TIER2_GOLD)"; \
+	  $(HADOOP) exec -T namenode rm -rf /tmp/tier2_gold && \
+	  $(HADOOP) cp "$(TIER2_GOLD)" namenode:/tmp/tier2_gold; fi
+	$(HADOOP) exec -T namenode bash /opt/urbanflow/scripts/hdfs-load.sh
+
+hive-tables:   ## declare the Hive tables over the HDFS data (hive/queries/01_create_tables.sql)
+	scripts/hadoop/hive-run.sh 01_create_tables.sql
+
+hadoop-mr:     ## Hive writes a text extract, then a Python MapReduce job counts trips per zone per hour on YARN
+	scripts/hadoop/hive-run.sh 02_export_for_mapreduce.sql
+	$(HADOOP) exec -T namenode bash /opt/urbanflow/scripts/mr-zone-hour.sh
+
+hive-query:    ## run the HiveQL analytics: reproduce gold, compare with MapReduce, Tier 2 answers
+	scripts/hadoop/hive-run.sh 03_reproduce_gold.sql 04_analytics.sql 05_managed_partitioned.sql
+
+hadoop-demo: hadoop-load hive-tables hadoop-mr hive-query  ## the whole walkthrough, after hadoop-up
+
+hadoop-down:   ## stop the Hadoop stack, keep HDFS + metastore data in their volumes
+	$(HADOOP) down
+
+hadoop-clean:  ## stop the Hadoop stack AND delete its volumes (HDFS contents, Hive metastore)
+	$(HADOOP) down -v

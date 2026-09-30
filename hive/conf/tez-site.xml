@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!-- Apache Tez: the execution engine Hive 4 compiles queries into. A query
+     becomes one DAG of tasks run by a Tez ApplicationMaster on YARN. -->
+<configuration>
+  <!-- The Tez jars, uploaded to HDFS by scripts/hadoop/tez-upload.sh, are
+       shipped to every YARN container from here. -->
+  <property><name>tez.lib.uris</name><value>${fs.defaultFS}/apps/tez</value></property>
+  <!-- The image ships the "minimal" Tez build: use the cluster's own Hadoop jars. -->
+  <property><name>tez.use.cluster.hadoop-libs</name><value>true</value></property>
+  <!-- ...including its MapReduce jars (Hive's input formats use JobConf), which
+       are not on YARN's default application classpath. Paths are on the NodeManager. -->
+  <property><name>tez.cluster.additional.classpath.prefix</name>
+    <value>/opt/hadoop/share/hadoop/mapreduce/*:/opt/hadoop/share/hadoop/mapreduce/lib/*</value></property>
+  <property><name>tez.local.mode</name><value>false</value></property>
+  <property><name>tez.am.resource.memory.mb</name><value>1024</value></property>
+  <property><name>tez.task.resource.memory.mb</name><value>1024</value></property>
+  <!-- Same Java 8 vfork workaround as mapred-site.xml, for the Tez JVMs. -->
+  <property><name>tez.am.launch.cmd-opts</name><value>-Xmx768m -Djdk.lang.Process.launchMechanism=FORK</value></property>
+  <property><name>tez.task.launch.cmd-opts</name><value>-Xmx768m -Djdk.lang.Process.launchMechanism=FORK</value></property>
+  <!-- Idle Tez sessions release their YARN containers after 2 minutes. -->
+  <property><name>tez.session.am.dag.submit.timeout.secs</name><value>120</value></property>
+</configuration>

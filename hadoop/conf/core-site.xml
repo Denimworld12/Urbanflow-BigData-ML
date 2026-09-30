@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!-- Shared by every container in docker-compose.hadoop.yml (Hadoop and Hive). -->
+<configuration>
+  <!-- Where "hdfs:///path" points: the NameNode's RPC address. -->
+  <property><name>fs.defaultFS</name><value>hdfs://namenode:8020</value></property>
+  <!-- Built-in Prometheus endpoint: every daemon serves /prom on its web port. -->
+  <property><name>hadoop.prometheus.endpoint.enabled</name><value>true</value></property>
+  <!-- Let HiveServer2 (user "hive") run queries on behalf of the connecting user. -->
+  <property><name>hadoop.proxyuser.hive.hosts</name><value>*</value></property>
+  <property><name>hadoop.proxyuser.hive.groups</name><value>*</value></property>
+  <property><name>hadoop.proxyuser.hadoop.hosts</name><value>*</value></property>
+  <property><name>hadoop.proxyuser.hadoop.groups</name><value>*</value></property>
+</configuration>
