@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # Copies UrbanFlow's local medallion layers into HDFS. Runs INSIDE the
 # namenode container (`make hadoop-load`), where ./data is mounted read-only
-# at /urbanflow-data.
+# at /urbanflow-data. The Hive tables are declared over the yellow layout, so
+# this always loads the yellow dataset.
 #
-#   data/raw/<dataset>/          -> /urbanflow/bronze/<dataset>/
+#   data/raw/yellow/             -> /urbanflow/bronze/yellow/
 #   data/raw/taxi_zone_lookup.csv-> /urbanflow/bronze/zones/
-#   data/curated/<dataset>/      -> /urbanflow/silver/<dataset>/   (year=/month= partitions kept)
-#   data/gold/<table>/           -> /urbanflow/gold/<dataset>/<table>/
+#   data/curated/yellow/         -> /urbanflow/silver/yellow/   (year=/month= partitions kept)
+#   data/gold/<table>/           -> /urbanflow/gold/yellow/<table>/
 #   $TIER2_GOLD/<table>/         -> /urbanflow/gold/fhvhv/<table>/ (optional: the real Tier 2 gold)
 #
 # Every step replaces its HDFS target, so re-running is safe.
 set -euo pipefail
 
 SRC=/urbanflow-data
-DATASET="${DATASET:-yellow}"
+DATASET=yellow
 TIER2_GOLD_IN=/tmp/tier2_gold     # the Makefile copies TIER2_GOLD here with `docker compose cp`
 
 say() { printf '\n==> %s\n' "$*"; }
@@ -33,7 +34,7 @@ replace_all() {  # replace_all <hdfs dir> <local dir>... : one put for many tabl
   for t in "$@"; do t="${t%/}"; echo "  $t -> $dst/$(basename "$t")"; done
 }
 
-[ -d "$SRC/curated/$DATASET" ] || { echo "no $SRC/curated/$DATASET - run 'make synth curate gold' (or ingest) first" >&2; exit 1; }
+[ -d "$SRC/curated/$DATASET" ] || { echo "no $SRC/curated/$DATASET - run 'make synth curate gold' (or ingest/curate/gold with DATASET=yellow) first" >&2; exit 1; }
 
 say "HDFS layout under /urbanflow"
 hdfs dfs -mkdir -p /urbanflow/bronze /urbanflow/silver /urbanflow/gold /urbanflow/staging /urbanflow/mr

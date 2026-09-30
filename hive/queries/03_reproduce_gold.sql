@@ -4,7 +4,7 @@
 -- Spark (src/urbanflow/analyze/gold.py) and Hive read the SAME silver
 -- Parquet files in HDFS, through two different engines. If both give the same
 -- numbers, the gold layer is reproducible and neither engine is hiding a bug.
--- Each Hive query below runs as one or more MapReduce jobs on YARN.
+-- Each Hive query below runs as a Tez DAG (a YARN application).
 USE urbanflow;
 
 -- ------------------------------------------------------------------ Q1 daily KPIs

@@ -226,7 +226,8 @@ Add the real Tier 2 gold tables (243.5M FHVHV trips, from the separate
 `Urbanflow-BDA-data` repository) with
 `make hadoop-load TIER2_GOLD=/path/to/Urbanflow-BDA-data/data/gold`.
 UIs: NameNode http://localhost:19870, YARN http://localhost:18088,
-JobHistory http://localhost:19888, HiveServer2 http://localhost:20002.
+JobHistory http://localhost:19888, HiveServer2 http://localhost:20002
+(bound to `127.0.0.1` only). The stack loads the yellow dataset layout.
 
 What it shows, measured on the Tier 0 month: Hive recomputes `daily_kpis`
 (31/31 days), `demand_by_zone_hour` (10,333/10,333 groups) and `tipping`

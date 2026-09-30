@@ -12,7 +12,7 @@ SKIP ?= 0
 
 .PHONY: help setup check synth ingest curate gold model predict-grid bench dash all clean-data test \
         hbase-up hbase-load hbase-query hbase-zk hbase-shell hbase-down hbase-clean \
-        hadoop-up hadoop-status hadoop-load hive-tables hadoop-mr hive-query hadoop-spark hadoop-demo hadoop-down hadoop-clean
+        hadoop-up hadoop-status hadoop-load hive-tables hadoop-mr hive-query hadoop-demo hadoop-down hadoop-clean
 
 help:
 	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-15s\033[0m %s\n", $$1, $$2}'
@@ -123,12 +123,12 @@ hadoop-status: ## show cluster health: containers, HDFS capacity, YARN nodes, re
 	$(HADOOP) ps --format 'table {{.Service}}\t{{.Status}}'
 	$(HADOOP) exec -T namenode bash -c 'hdfs dfsadmin -report 2>/dev/null | sed -n "1,6p;/^Live datanodes/p"; yarn node -list 2>/dev/null | tail -n +2; yarn application -list -appStates ALL 2>/dev/null | tail -n +2 | tail -6'
 
-hadoop-load:   ## copy data/ bronze, silver, gold into HDFS under /urbanflow (TIER2_GOLD=path adds the real Tier 2 gold)
+hadoop-load:   ## copy the yellow data/ bronze, silver, gold into HDFS under /urbanflow (TIER2_GOLD=path adds the real Tier 2 gold)
 	@if [ -n "$(TIER2_GOLD)" ]; then \
 	  echo "==> copying Tier 2 gold from $(TIER2_GOLD)"; \
 	  $(HADOOP) exec -T namenode rm -rf /tmp/tier2_gold && \
 	  $(HADOOP) cp "$(TIER2_GOLD)" namenode:/tmp/tier2_gold; fi
-	$(HADOOP) exec -T -e DATASET=$(DATASET) namenode bash /opt/urbanflow/scripts/hdfs-load.sh
+	$(HADOOP) exec -T namenode bash /opt/urbanflow/scripts/hdfs-load.sh
 
 hive-tables:   ## declare the Hive tables over the HDFS data (hive/queries/01_create_tables.sql)
 	scripts/hadoop/hive-run.sh 01_create_tables.sql
@@ -139,10 +139,6 @@ hadoop-mr:     ## Hive writes a text extract, then a Python MapReduce job counts
 
 hive-query:    ## run the HiveQL analytics: reproduce gold, compare with MapReduce, Tier 2 answers
 	scripts/hadoop/hive-run.sh 03_reproduce_gold.sql 04_analytics.sql 05_managed_partitioned.sql
-
-hadoop-spark:  ## Spark (the existing app image) reads the silver layer back from hdfs://
-	docker compose -f docker-compose.yml -f docker-compose.hadoop-spark.yml run --rm --no-deps \
-	  --entrypoint .venv/bin/python urbanflow scripts/hadoop/spark_read_hdfs.py
 
 hadoop-demo: hadoop-load hive-tables hadoop-mr hive-query  ## the whole walkthrough, after hadoop-up
 

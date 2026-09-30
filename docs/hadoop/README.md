@@ -82,18 +82,17 @@ The demo steps can also be run one at a time:
 
 | Target | What it does |
 |---|---|
-| `make hadoop-load` | copies `data/raw`, `data/curated`, `data/gold` into HDFS; prints `ls`, `du`, replication and block info |
+| `make hadoop-load` | copies the yellow dataset's `data/raw`, `data/curated`, `data/gold` into HDFS (the Hive tables are declared over the yellow layout); prints `ls`, `du`, replication and block info |
 | `make hadoop-load TIER2_GOLD=/path/to/Urbanflow-BDA-data/data/gold` | also loads the real Tier 2 (243.5M-trip) gold tables and model predictions |
 | `make hive-tables` | declares the Hive tables (`hive/queries/01_create_tables.sql`) |
 | `make hadoop-mr` | Hive writes a text extract, then the MapReduce job runs on YARN |
 | `make hive-query` | runs `hive/queries/03`, `04`, `05` and prints the results |
-| `make hadoop-spark` | the existing Spark app image reads the silver layer from `hdfs://` |
 | `make hadoop-status` | containers, HDFS capacity, YARN nodes, recent applications |
 | `make hadoop-clean` | stop AND delete the HDFS and metastore volumes |
 
-Web UIs while it runs (host ports are offset from the Hadoop defaults so they
-never clash with another Hadoop or HBase stack; override with the `UF_*_PORT`
-variables in `docker-compose.hadoop.yml`):
+Web UIs while it runs (host ports are bound to `127.0.0.1` only and offset
+from the Hadoop defaults so they never clash with another Hadoop or HBase
+stack; override with the `UF_*_PORT` variables in `docker-compose.hadoop.yml`):
 
 | UI | URL |
 |---|---|
