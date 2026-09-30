@@ -3,7 +3,7 @@
 # strips the JVM's logging noise. Used by the hive-* make targets.
 #   scripts/hadoop/hive-run.sh 03_reproduce_gold.sql [04_analytics.sql ...]
 set -uo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/../.." || exit
 for f in "$@"; do
   printf '\n######## hive/queries/%s\n' "$f"
   docker compose -p urbanflow-hadoop -f docker-compose.hadoop.yml exec -T hiveserver2 \
