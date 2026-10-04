@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from urbanflow import config                                     # noqa: E402
 from urbanflow.dashboard.ai import groq_chat, load_dotenv        # noqa: E402
+from urbanflow.dashboard import live as live_view                 # noqa: E402
 
 # GROQ_API_KEY lives in the repo-root .env (gitignored). Docker Compose passes
 # it in as a real env var; `make dash` doesn't, so read it here too.
