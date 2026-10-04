@@ -134,7 +134,9 @@ pre-installed). Open the repo in VS Code with the
 [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
 (or in a GitHub Codespace) and choose **"Reopen in Container"** — you get an
 identical Linux environment regardless of host OS, and `make setup && make
-check` just works. Requires Docker Desktop on Windows/macOS.
+check` just works. Requires Docker Desktop on Windows/macOS. In a Codespace the
+opt-in Hadoop/HBase/Kafka/monitoring stacks run too. Machine size and how to
+open their UIs: [`docs/CODESPACES.md`](docs/CODESPACES.md).
 
 **Native, without Docker:**
 
