@@ -83,7 +83,7 @@ The demo steps can also be run one at a time:
 | Target | What it does |
 |---|---|
 | `make hadoop-load` | copies the yellow dataset's `data/raw`, `data/curated`, `data/gold` into HDFS (the Hive tables are declared over the yellow layout); prints `ls`, `du`, replication and block info |
-| `make hadoop-load TIER2_GOLD=/path/to/Urbanflow-BDA-data/data/gold` | also loads the real Tier 2 (243.5M-trip) gold tables and model predictions |
+| `make tier2-data` | clones the real Tier 2 (243.5M-trip) gold tables and model predictions (`Urbanflow-BDA-data`, ~340 KB) into `external/`; a Codespace does this on creation. `make hadoop-load` then loads them too. A copy elsewhere: `make hadoop-load TIER2_GOLD=/path/to/Urbanflow-BDA-data/data/gold` |
 | `make hive-tables` | declares the Hive tables (`hive/queries/01_create_tables.sql`) |
 | `make hadoop-mr` | Hive writes a text extract, then the MapReduce job runs on YARN |
 | `make hive-query` | runs `hive/queries/03`, `04`, `05` and prints the results |

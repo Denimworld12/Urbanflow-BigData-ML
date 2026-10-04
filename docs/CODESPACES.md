@@ -1,10 +1,46 @@
 # UrbanFlow in GitHub Codespaces
 
 The dev container (`.devcontainer/devcontainer.json`) gives a Codespace the
-same setup as the laptop Quickstart: Python 3.11, Java 21 and `make`, with
-`make setup && make check` run on creation. It also installs a Docker daemon
-inside the Codespace (the `docker-in-docker` feature), so the opt-in Big Data
-stacks from the README run there too.
+same setup as the laptop Quickstart: Python 3.11, Java 21 and `make`. It also
+installs a Docker daemon inside the Codespace (the `docker-in-docker`
+feature), so the opt-in Big Data stacks from the README run there too.
+
+## What happens when the Codespace is created
+
+After the image builds, the `postCreateCommand` runs
+`make tier2-data && make setup && make check`:
+
+1. `make tier2-data` clones the real Tier 2 results into
+   `external/Urbanflow-BDA-data` (see [below](#the-real-tier-2-data)).
+2. `make setup` creates `.venv` and installs `requirements.txt`.
+3. `make check` starts Spark once and prints the Java and Spark versions.
+
+This takes a few minutes. The Codespace opens before it finishes. Watch the
+**Creation log** (Command Palette: *Codespaces: View Creation Log*) until it
+shows `Spark 4.2.0 | master=local[...]`. After that, `make synth`, `curate`,
+`gold`, `model`, `predict-grid` and `dash` work.
+
+### If `make` says `.venv/bin/python: not found`
+
+Then `make setup` never ran. Codespaces made before this fix were built from
+`mcr.microsoft.com/devcontainers/python:1-3.11-bullseye`. That image has a
+Yarn apt source whose signing key is no longer valid, so `apt-get update`
+fails inside it (`NO_PUBKEY 62D54FD4003F6525`). The `docker-in-docker`
+feature runs `apt-get update` while it installs, so the image build failed.
+When the dev container fails to build, Codespaces starts the Codespace in
+[recovery mode](https://docs.github.com/en/codespaces/troubleshooting/troubleshooting-creation-and-deletion-of-codespaces)
+instead, and the `postCreateCommand` does not run. The dev container now uses
+`python:3-3.11-bookworm`, which has no Yarn source.
+
+A Codespace already in this state does not fix itself when you pull. Once
+this fix is on `main`, either:
+
+* **Delete it and create a new one** from `main` (simplest). Or:
+* `git pull` in the old Codespace, then run *Codespaces: Rebuild
+  Container* from the Command Palette and choose **Full Rebuild**.
+
+If it happens again in a new Codespace, the Creation log shows which step
+failed. You can also run `make setup && make check` by hand.
 
 ## Which machine type
 
@@ -81,7 +117,47 @@ say, and what it means here:
   Codespace's `GITHUB_TOKEN` (an environment variable in the Codespace) as a
   header: `curl -H "X-Github-Token: <token>" https://<codespace-name>-9308.app.github.dev/metrics`.
 
-## Not yet tested
+## The real Tier 2 data
 
-The Hadoop, HBase, streaming and monitoring stacks have **not** been started
-inside a real Codespace yet. If one misbehaves there, please open an issue.
+[`Denimworld12/Urbanflow-BDA-data`](https://github.com/Denimworld12/Urbanflow-BDA-data)
+holds the output of one full Tier 2 run: the gold tables from 243.5M FHVHV
+trips (`data/gold`) and the trained model (`data/models`). The repository is
+public and small: about 340 KB in all, of which `data/gold` is about 230 KB.
+So every new Codespace clones it, with no sign-in or token needed:
+
+* `make tier2-data` (run by the `postCreateCommand`) clones it into
+  `external/Urbanflow-BDA-data`. `external/` is gitignored.
+* If the clone is already there, it does nothing. Use
+  `git -C external/Urbanflow-BDA-data pull` to update it.
+* If GitHub cannot be reached, it prints `skipped: ...` and setup carries on
+  without the data. Run `make tier2-data` again later.
+* `make hadoop-load` loads `external/Urbanflow-BDA-data/data/gold` into HDFS
+  under `/urbanflow/gold/fhvhv/` automatically when it is there. Point it
+  somewhere else with `make hadoop-load TIER2_GOLD=/path/to/data/gold`.
+
+On a laptop, `make tier2-data` does the same thing.
+
+## What has been tested
+
+The dev container was built and run on 2026-10-04 with the
+[Dev Containers CLI](https://github.com/devcontainers/cli) (`devcontainer up`
+on a fresh clone). That builds the same image, with the same features, and
+runs the same `postCreateCommand` as Codespaces. It was built twice: natively
+on arm64, and as x86_64 (the architecture Codespaces uses) under emulation.
+With the old image the build failed at the `docker-in-docker` feature, as
+described above (`apt-get update` in the old image fails on both
+architectures). With the new image, on both architectures:
+
+* the Tier 2 clone, `make setup` and `make check` all succeeded;
+* `.venv/bin/python` existed;
+* `docker` talked to the daemon inside the container.
+
+On arm64, also:
+
+* `make synth curate gold model predict-grid` all exited 0;
+* `make dash` answered on port 8501;
+* `docker compose` was available.
+
+It was not run inside a GitHub Codespace itself. The Hadoop, HBase,
+streaming and monitoring stacks have not been started in a Codespace yet. If
+one misbehaves there, please open an issue.
