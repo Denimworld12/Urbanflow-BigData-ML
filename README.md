@@ -225,8 +225,9 @@ make hadoop-down           # stop (make hadoop-clean also deletes the HDFS/metas
 ```
 
 Add the real Tier 2 gold tables (243.5M FHVHV trips, from the separate
-`Urbanflow-BDA-data` repository) with
-`make hadoop-load TIER2_GOLD=/path/to/Urbanflow-BDA-data/data/gold`.
+`Urbanflow-BDA-data` repository) with `make tier2-data` before
+`make hadoop-load` (a Codespace clones them on creation), or point at a copy
+elsewhere with `make hadoop-load TIER2_GOLD=/path/to/Urbanflow-BDA-data/data/gold`.
 UIs: NameNode http://localhost:19870, YARN http://localhost:18088,
 JobHistory http://localhost:19888, HiveServer2 http://localhost:20002
 (bound to `127.0.0.1` only). The stack loads the yellow dataset layout.

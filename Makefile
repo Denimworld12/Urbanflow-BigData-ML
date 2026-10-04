@@ -10,7 +10,7 @@ RATE ?= 2000
 LIMIT ?= 300000
 SKIP ?= 0
 
-.PHONY: help setup check synth ingest curate gold model predict-grid bench dash all clean-data test \
+.PHONY: help setup check synth ingest curate gold model predict-grid bench dash all tier2-data clean-data test \
         hbase-up hbase-load hbase-query hbase-zk hbase-shell hbase-down hbase-clean \
         hadoop-up hadoop-status hadoop-load hive-tables hadoop-mr hive-query hadoop-demo hadoop-down hadoop-clean
 
@@ -55,6 +55,9 @@ test:         ## run unit tests (no network, no big data)
 	PYTHONPATH=src .venv/bin/pytest -q tests/
 
 all: synth curate gold model predict-grid bench  ## full pipeline on synthetic data
+
+tier2-data:   ## clone the real Tier 2 gold + model (Urbanflow-BDA-data, ~340 KB) into external/
+	scripts/fetch-tier2-data.sh
 
 clean-data:   ## delete derived layers, keep bronze
 	rm -rf data/curated data/gold data/bench data/models data/spill
@@ -106,7 +109,7 @@ hbase-clean:  ## stop the HBase stack and delete its HBase + ZooKeeper volumes
 # pipeline above. Needs the local data/ layers first (make synth curate gold,
 # or the ingest path). Walkthrough: docs/hadoop/README.md
 HADOOP := docker compose -p urbanflow-hadoop -f docker-compose.hadoop.yml
-TIER2_GOLD ?=
+TIER2_GOLD ?= $(wildcard external/Urbanflow-BDA-data/data/gold)
 
 hadoop-up:     ## start HDFS, YARN, MapReduce history, Hive metastore (Postgres) + HiveServer2
 	scripts/hadoop/fetch-jars.sh
@@ -123,7 +126,7 @@ hadoop-status: ## show cluster health: containers, HDFS capacity, YARN nodes, re
 	$(HADOOP) ps --format 'table {{.Service}}\t{{.Status}}'
 	$(HADOOP) exec -T namenode bash -c 'hdfs dfsadmin -report 2>/dev/null | sed -n "1,6p;/^Live datanodes/p"; yarn node -list 2>/dev/null | tail -n +2; yarn application -list -appStates ALL 2>/dev/null | tail -n +2 | tail -6'
 
-hadoop-load:   ## copy the yellow data/ bronze, silver, gold into HDFS under /urbanflow (TIER2_GOLD=path adds the real Tier 2 gold)
+hadoop-load:   ## copy the yellow data/ bronze, silver, gold into HDFS under /urbanflow (+ the real Tier 2 gold, from make tier2-data or TIER2_GOLD=path)
 	@if [ -n "$(TIER2_GOLD)" ]; then \
 	  echo "==> copying Tier 2 gold from $(TIER2_GOLD)"; \
 	  $(HADOOP) exec -T namenode rm -rf /tmp/tier2_gold && \

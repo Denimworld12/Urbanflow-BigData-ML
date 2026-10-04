@@ -4,6 +4,8 @@ data/
 *.csv
 !schema/*.csv
 .venv/
+# real Tier 2 results, cloned by `make tier2-data`, never committed
+external/
 __pycache__/
 *.pyc
 .pytest_cache/
