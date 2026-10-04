@@ -23,6 +23,9 @@ COPY src ./src
 COPY schema ./schema
 COPY scripts ./scripts
 COPY tests ./tests
+# test inputs for `make test`: the MapReduce scripts and the monitoring configs
+COPY hadoop/mapreduce ./hadoop/mapreduce
+COPY monitoring ./monitoring
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 

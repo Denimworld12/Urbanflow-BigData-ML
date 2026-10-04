@@ -1,6 +1,9 @@
 # UrbanFlow — one command per pipeline stage.
 # Every target is safe to re-run.
 PY := .venv/bin/python
+# interpreter `make setup` builds the venv from; override when the default
+# python3 is too old, e.g. make setup PYTHON=python3.12
+PYTHON ?= python3
 TIER ?= 0
 DATASET ?= yellow
 # real-time path (docker-compose.streaming.yml)
@@ -11,19 +14,36 @@ LIMIT ?= 300000
 SKIP ?= 0
 
 .PHONY: help setup check synth ingest curate gold model predict-grid bench dash all tier2-data clean-data test \
+        stream-up stream-produce stream-run stream-status stream-tail stream-down stream-reset \
+        monitor-up monitor-attach monitor-down monitor-status monitor-reload monitor-check monitor-dashboards \
         hbase-up hbase-load hbase-query hbase-zk hbase-shell hbase-down hbase-clean \
         hadoop-up hadoop-status hadoop-load hive-tables hadoop-mr hive-query hadoop-demo hadoop-down hadoop-clean
 
 help:
-	@grep -E '^[a-z-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-15s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^[a-z0-9-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1m%-20s\033[0m %s\n", $$1, $$2}'
 
-setup:        ## create venv and install pinned dependencies
-	python3 -m venv .venv
+# pyspark 4.2 needs Python 3.10+; on an older one pip fails with a confusing
+# "no matching distribution" error, so stop with a clear message first.
+PY_VERSION_OK := import sys; sys.exit(sys.version_info < (3, 10))
+
+setup:        ## create venv (or reuse a healthy one) and install pinned dependencies; PYTHON=python3.12 picks the interpreter
+	@if [ -x $(PY) ]; then \
+	  $(PY) -c '$(PY_VERSION_OK)' 2>/dev/null || { \
+	    echo ".venv uses $$($(PY) --version 2>&1), too old for pyspark 4.2 (needs Python 3.10+)."; \
+	    echo "Delete it and rebuild with a newer Python: rm -rf .venv && make setup PYTHON=python3.12"; exit 1; }; \
+	  echo "Reusing .venv ($$($(PY) --version 2>&1))"; \
+	else \
+	  $(PYTHON) -c '$(PY_VERSION_OK)' 2>/dev/null || { \
+	    echo "$(PYTHON) is $$($(PYTHON) --version 2>/dev/null || echo not installed); UrbanFlow needs Python 3.10+ (pyspark 4.2)."; \
+	    echo "Install a newer one (README, Native setup) and run e.g.: make setup PYTHON=python3.12"; exit 1; }; \
+	  echo "$(PYTHON) -m venv .venv"; $(PYTHON) -m venv .venv; \
+	fi
 	$(PY) -m pip install --upgrade pip setuptools wheel
 	$(PY) -m pip install -r requirements.txt
 	@echo "\nNow run: make check"
 
 check:        ## verify Java + Spark start correctly on this machine
+	@test -x $(PY) || { echo "no .venv yet: run make setup first"; exit 1; }
 	@java -version 2>&1 | grep -iE '(openjdk|java) version' | head -1
 	@PYTHONPATH=src $(PY) -c "from urbanflow.session import get_spark, describe; s=get_spark('check'); print(describe(s)); s.stop()"
 
@@ -61,6 +81,65 @@ tier2-data:   ## clone the real Tier 2 gold + model (Urbanflow-BDA-data, ~340 KB
 
 clean-data:   ## delete derived layers, keep bronze
 	rm -rf data/curated data/gold data/bench data/models data/spill
+
+# ---------------------------------------------------------------- real-time path (opt-in)
+# Kafka runs in Docker; the producer and the Spark job run from the venv.
+# Walkthrough: docs/hadoop/streaming.md
+stream-up:    ## start Kafka (KRaft) + kafka-exporter and create the topics
+	$(STREAM_COMPOSE) up -d --wait kafka kafka-exporter
+	$(KAFKA_CLI)/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic trips --partitions 3 --replication-factor 1
+	$(KAFKA_CLI)/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists --topic zone-metrics --partitions 3 --replication-factor 1
+	@echo "\nKafka on localhost:$${KAFKA_HOST_PORT:-9092}, Prometheus metrics on localhost:$${KAFKA_EXPORTER_PORT:-9308}/metrics.\nNext, in two terminals: make stream-run   and   make stream-produce"
+
+stream-produce: ## replay bronze trips into Kafka (RATE=events/s, LIMIT=trips, SKIP=trips already sent)
+	PYTHONPATH=src $(PY) -u -m urbanflow.stream.producer --rate $(RATE) --limit $(LIMIT) --skip $(SKIP)
+
+stream-run:   ## Spark Structured Streaming: 5-min windowed metrics per zone -> data/stream + Kafka (STREAM_ARGS=...)
+	PYTHONPATH=src $(PY) -u -m urbanflow.stream.job $(STREAM_ARGS)
+
+stream-status: ## describe the topics and consumer-group lag
+	$(KAFKA_CLI)/kafka-topics.sh --bootstrap-server kafka:29092 --describe --exclude-internal
+	$(KAFKA_CLI)/kafka-consumer-groups.sh --bootstrap-server kafka:29092 --describe --all-groups
+
+stream-tail:  ## print the first 5 windowed results from the zone-metrics topic
+	$(KAFKA_CLI)/kafka-console-consumer.sh --bootstrap-server kafka:29092 --topic zone-metrics --from-beginning --max-messages 5 --property print.key=true
+
+stream-down:  ## stop the streaming stack (Kafka data and data/stream kept)
+	$(STREAM_COMPOSE) down
+
+stream-reset: ## stop it AND delete Kafka's volume, checkpoints and data/stream
+	$(STREAM_COMPOSE) down -v
+	rm -rf $(or $(URBANFLOW_DATA),data)/stream
+
+# ---------------------------------------------------------------- monitoring (opt-in)
+# Prometheus + Grafana + cAdvisor + json-exporter; watches the Hadoop, HBase
+# and streaming stacks whenever they are running. Walkthrough: docs/hadoop/monitoring.md
+MONITOR := docker compose -p urbanflow-monitoring -f docker-compose.monitoring.yml
+
+monitor-up:   ## start Prometheus :9090 + Grafana :3000 (admin/urbanflow), attach to running stacks
+	$(MONITOR) up -d
+	@sh scripts/monitor_attach.sh
+	@echo "\nGrafana    http://localhost:$${GRAFANA_PORT:-3000}  (admin / urbanflow)"
+	@echo "Prometheus http://localhost:$${PROMETHEUS_PORT:-9090}/targets"
+
+monitor-attach: ## connect monitoring to a stack started after monitor-up
+	@sh scripts/monitor_attach.sh
+
+monitor-down: ## stop the monitoring stack (keeps its data volumes)
+	$(MONITOR) down
+
+monitor-status: ## list every scrape target and whether it is up
+	@curl -fsS "http://localhost:$${PROMETHEUS_PORT:-9090}/api/v1/targets?state=active" | python3 scripts/monitor_status.py
+
+monitor-reload: ## make Prometheus re-read prometheus.yml / alerts.yml (SIGHUP)
+	$(MONITOR) kill -s SIGHUP prometheus && echo reloaded
+
+monitor-check: ## validate the Prometheus config and alert rules with promtool
+	docker run --rm --entrypoint promtool -v "$(CURDIR)/monitoring/prometheus:/p:ro" \
+	    prom/prometheus:v3.5.0 check config /p/prometheus.yml
+
+monitor-dashboards: ## regenerate the Grafana dashboard JSON
+	python3 scripts/build_dashboards.py
 
 # ---------------------------------------------------------------- HBase + ZooKeeper (opt-in)
 # Separate compose project; never touches the default `docker compose up` stack.
