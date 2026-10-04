@@ -10,12 +10,16 @@ echo
 
 # parse from the whole output: JAVA_TOOL_OPTIONS and agent banners can precede the version line
 V=$(java -version 2>&1 | grep -iE '(openjdk|java) version' | head -1 | grep -oE '"[0-9]+' | tr -d '"')
-if [ -z "${V:-}" ]; then bad "Java not found. Install Temurin JDK 17."
+if [ -z "${V:-}" ]; then bad "Java not found. Install JDK 17, 21 or 25 (README, Native setup)."
 elif [ "$V" -ge 17 ] 2>/dev/null; then ok "Java $V"
 else bad "Java $V is too old. Spark 4.2 needs 17, 21 or 25. Install Temurin 17."; fi
 
-P=$(python3 -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null)
-[ -n "$P" ] && ok "Python $P" || bad "Python 3 not found"
+# same interpreter `make setup` uses; check another with PYTHON=python3.12 scripts/doctor.sh
+PY=${PYTHON:-python3}
+P=$($PY -c 'import sys;print("%d.%d"%sys.version_info[:2])' 2>/dev/null)
+if [ -z "$P" ]; then bad "$PY not found"
+elif $PY -c 'import sys; sys.exit(sys.version_info < (3, 10))'; then ok "Python $P ($PY)"
+else bad "$PY is Python $P; pyspark 4.2 needs 3.10+. Install a newer one, then make setup PYTHON=python3.12"; fi
 
 C=$( (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null) || echo "?")
 ok "CPU cores: $C"
@@ -29,4 +33,4 @@ A=$(df -Pk . | awk 'NR==2{printf "%d", $4/1048576}')
 [ "$A" -ge 25 ] 2>/dev/null && ok "Free disk ${A} GB" || warn "Free disk ${A} GB — need 25 GB for Tier 2"
 
 echo
-echo "If everything above is OK:  make setup && make check && make synth"
+echo "If everything above is OK:  make setup${PYTHON:+ PYTHON=$PYTHON} && make check && make synth"

@@ -30,36 +30,7 @@ The dashboard, running against the real 243.5M-row FHVHV gold layer:
 | **Behaviour** — tipping patterns, card vs. cash | **Performance** — Spark scaling and format benchmarks |
 | ![Behaviour tab](docs/screenshots/behaviour.png) | ![Performance tab](docs/screenshots/performance.png) |
 
-## Requirements
-
-* **Java 17, 21 or 25** — Spark 4.2 will not start on 8 or 11. Check with
-  `java -version` before anything else; this is the most common blocker.
-* **Python 3.10+** (tested on 3.12). If `python3 --version` on your machine is
-  older, install a newer one (`brew install python@3.12`, `pyenv install
-  3.12`, or the Microsoft Store on Windows) rather than fighting the old one.
-* 25 GB free disk, 8 GB RAM (16 GB more comfortable).
-
-## Quickstart — 10 minutes, no download required
-
-```bash
-make setup          # venv + pinned dependencies
-make check          # verifies Java + Spark actually start
-make synth           # 200k synthetic trips, TLC-shaped, with realistic dirt
-make curate          # bronze -> silver
-make gold             # the six answer tables
-make model            # trip-duration model vs a naive baseline
-make predict-grid     # pre-score the model for the dashboard's Predict tab
-make test             # unit tests — run this after touching curate/
-make dash             # dashboard at localhost:8501
-```
-
-`make synth` exists so all three of you can build and test the entire pipeline
-on **day one**, before anyone has finished downloading 7 GB. The synthetic data
-carries the same defects as the real files — stray 2001/2098 timestamps,
-negative fares, teleporting taxis — so if your cleaning rules work here they
-will work on the real thing.
-
-## New developer? One-click with Docker
+## Fastest start: one command with Docker (any OS)
 
 No Java, no Python, no `make` needed on your machine at all — just
 [Docker](https://www.docker.com/products/docker-desktop/), on Windows, macOS
@@ -83,6 +54,145 @@ Run a different make target instead of the dashboard, e.g. just the tests:
 This is the fastest way for a new teammate to see the whole thing working
 before they've installed anything project-specific — use the dev container
 below once you're actually developing rather than just demoing.
+
+## Native setup: macOS, Linux, Windows
+
+To run the pipeline on your own machine you need:
+
+* **Java 17, 21 or 25.** Spark 4.2 will not start on 8 or 11.
+* **Python 3.10 or newer** (tested on 3.11 and 3.12). `pyspark==4.2.0` does
+  not install on 3.9: pip ends with `No matching distribution found for
+  pyspark==4.2.0`, and the real reason (`Requires-Python >=3.10`) is buried
+  in a long line above it. macOS and some Linux distros still ship 3.9 as
+  `python3`, so check before anything else.
+* `make` and `git`.
+* 25 GB free disk, 8 GB RAM (16 GB more comfortable).
+* Only for the [Big Data ecosystem](#big-data-ecosystem) stacks: Docker with
+  the Compose plugin (`docker compose version` works, v2 or later).
+
+`bash scripts/doctor.sh` checks Java, Python, cores, RAM and disk in one go.
+`PYTHON=python3.12 bash scripts/doctor.sh` checks a specific interpreter.
+
+`make setup` builds `.venv` from `python3` unless you name another interpreter
+with `PYTHON=`. It stops with a clear message if that Python is older than
+3.10, and it reuses an existing `.venv` that is already 3.10+.
+
+### macOS
+
+```bash
+python3 --version     # need 3.10+ (Apple's /usr/bin/python3 is 3.9)
+java -version         # need 17, 21 or 25
+```
+
+If either is missing or too old, install them with [Homebrew](https://brew.sh):
+
+```bash
+xcode-select --install           # make + git, only if `make --version` fails
+brew install python@3.12
+brew install --cask temurin@21   # Java 21; open a new terminal, then java -version
+```
+
+Then build the venv with that Python by name. Bare `python3` can still be the
+old 3.9 even after the install:
+
+```bash
+make setup PYTHON=python3.12     # runs python3.12 -m venv .venv, then pip install
+make check
+```
+
+`python3.12 -m venv .venv && make setup` does the same thing by hand.
+
+For the Big Data stacks, install Docker Desktop and give it at least 8 GB of
+memory (Settings → Resources) for the Hadoop stack.
+
+### Linux
+
+```bash
+python3 --version     # need 3.10+
+java -version         # need 17, 21 or 25
+```
+
+Debian and Ubuntu split `venv` into its own package. Without it,
+`python -m venv` fails with "ensurepip is not available". Install the row for
+your distro, then run its `make setup`:
+
+| Distro | Install | Then |
+|---|---|---|
+| Ubuntu 24.04+ | `sudo apt update && sudo apt install python3.12 python3.12-venv openjdk-21-jdk make git` | `make setup PYTHON=python3.12` |
+| Ubuntu 22.04 | `sudo apt update && sudo apt install python3.10-venv openjdk-21-jdk make git` | `make setup PYTHON=python3.10` |
+| Debian 12 | `sudo apt update && sudo apt install python3.11-venv openjdk-17-jdk make git` | `make setup PYTHON=python3.11` |
+| Fedora 43+ | `sudo dnf install python3.12 java-25-openjdk-devel make git` | `make setup PYTHON=python3.12` |
+
+Then `make check`. On an older release whose newest Python is 3.9 or below
+(Ubuntu 20.04, Debian 11), use the Docker path above or the dev container below.
+
+For the Big Data stacks, install Docker Engine with the Compose plugin
+(`docker-compose-plugin`), and run `sudo usermod -aG docker $USER` then log out
+and back in, so `docker` works without `sudo`.
+
+### Windows (WSL2)
+
+The Makefile needs a POSIX shell and `.venv/bin/python`, so plain
+PowerShell/cmd is not supported. Use WSL2. In PowerShell as Administrator:
+
+```powershell
+wsl --install         # installs WSL2 + Ubuntu; reboot when it asks
+```
+
+Open **Ubuntu** from the Start menu and clone the repo inside the Linux file
+system, not under `/mnt/c/`. Spark is much slower on the Windows-mounted drive.
+
+```bash
+cd ~ && git clone https://github.com/Denimworld12/Urbanflow-BigData-ML.git
+cd Urbanflow-BigData-ML
+```
+
+Then follow the [Linux](#linux) steps for your Ubuntu version (`lsb_release -r`).
+
+For the Big Data stacks, install Docker Desktop for Windows and turn on
+Settings → Resources → WSL integration for your Ubuntu distro, so `docker`
+works inside WSL. WSL gets half the machine's RAM by default; to give it more
+for the Hadoop stack, set `memory=12GB` under `[wsl2]` in
+`%UserProfile%\.wslconfig` and run `wsl --shutdown`.
+
+### Dev container (any OS)
+
+This repo ships `.devcontainer/devcontainer.json` (Python 3.11 + Java 21 +
+`make` + Docker, all pre-installed). Open the repo in VS Code with the
+[Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+(or in a GitHub Codespace) and choose **"Reopen in Container"**. You get the
+same Linux environment on every host, and `make setup && make check` just
+works. Needs Docker Desktop on Windows and macOS. In a Codespace the opt-in
+Hadoop/HBase/Kafka/monitoring stacks run too. Machine size and how to open
+their UIs: [`docs/CODESPACES.md`](docs/CODESPACES.md).
+
+All Spark sessions are created in one place (`src/urbanflow/session.py`),
+which pins the Spark worker subprocesses to the exact Python interpreter
+running the driver (`sys.executable`). This avoids a real bug we hit during
+testing where Spark silently picked up a different, incompatible system
+Python off `PATH`. That fix is OS-independent by construction.
+
+## Quickstart — 10 minutes, no download required
+
+After the [native setup](#native-setup-macos-linux-windows) for your OS:
+
+```bash
+make setup          # venv + pinned dependencies (add PYTHON=python3.12 if python3 is older than 3.10)
+make check          # verifies Java + Spark actually start
+make synth           # 200k synthetic trips, TLC-shaped, with realistic dirt
+make curate          # bronze -> silver
+make gold             # the six answer tables
+make model            # trip-duration model vs a naive baseline
+make predict-grid     # pre-score the model for the dashboard's Predict tab
+make test             # unit tests — run this after touching curate/
+make dash             # dashboard at localhost:8501
+```
+
+`make synth` exists so all three of you can build and test the entire pipeline
+on **day one**, before anyone has finished downloading 7 GB. The synthetic data
+carries the same defects as the real files — stray 2001/2098 timestamps,
+negative fares, teleporting taxis — so if your cleaning rules work here they
+will work on the real thing.
 
 ## Then switch to real data
 
@@ -122,35 +232,6 @@ Two pieces, and they do different jobs:
 How it all fits together, the metrics, and likely viva questions:
 [`docs/ai-ml.md`](docs/ai-ml.md).
 
-## Running it on Windows, macOS or Linux
-
-The pipeline itself is plain Python + Java and runs the same everywhere. The
-**one thing that differs by OS is `make`** — it ships with macOS and every
-Linux distro, but not with Windows.
-
-**Recommended, same on all three: the dev container.** This repo ships
-`.devcontainer/devcontainer.json` (Python 3.11 + Java 21 + `make`, all
-pre-installed). Open the repo in VS Code with the
-[Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
-(or in a GitHub Codespace) and choose **"Reopen in Container"** — you get an
-identical Linux environment regardless of host OS, and `make setup && make
-check` just works. Requires Docker Desktop on Windows/macOS. In a Codespace the
-opt-in Hadoop/HBase/Kafka/monitoring stacks run too. Machine size and how to
-open their UIs: [`docs/CODESPACES.md`](docs/CODESPACES.md).
-
-**Native, without Docker:**
-
-| OS | What to do |
-|---|---|
-| macOS / Linux | Install Java + Python as above, then run the Quickstart commands directly in Terminal. |
-| Windows | Use **WSL2** (Ubuntu) and run the Quickstart commands inside it — this is the only native path that gives you `make` and matches how the project is documented and tested. Plain PowerShell/cmd is not supported: the Makefile assumes a POSIX shell and `.venv/bin/python`, not `.venv\Scripts\python.exe`. |
-
-All Spark sessions are created in one place (`src/urbanflow/session.py`),
-which pins the Spark worker subprocesses to the exact Python interpreter
-running the driver (`sys.executable`) — this avoids a real bug we hit during
-testing where Spark silently picked up a different, incompatible system
-Python off `PATH`. That fix is OS-independent by construction.
-
 ## Big Data ecosystem
 
 Opt-in components that sit next to the batch pipeline. None of them is needed
@@ -163,6 +244,20 @@ for `docker compose up` or the Quickstart; each has its own compose file and
 | HBase + ZooKeeper | `docker-compose.hbase.yml` | [docs/hadoop/hbase.md](docs/hadoop/hbase.md) |
 | Kafka + Spark Structured Streaming | `docker-compose.streaming.yml` | [docs/hadoop/streaming.md](docs/hadoop/streaming.md) |
 | Prometheus + Grafana monitoring | `docker-compose.monitoring.yml` | [docs/hadoop/monitoring.md](docs/hadoop/monitoring.md) |
+
+**Before you start a stack:**
+
+* Docker with Compose v2 must be running (see the Docker notes for your OS in
+  [Native setup](#native-setup-macos-linux-windows)). All of these run in the
+  dev container and in Codespaces too.
+* Run `make setup` first. The Kafka producer, the Spark streaming job and the
+  HBase/Hadoop data loads use the project venv and the local `data/` layers.
+* Memory: the Hadoop stack wants about 8 GB for Docker by itself, HBase about
+  3 GB, Kafka about 0.5 GB. On a 16 GB machine run one heavy stack at a time.
+  Per-stack budget: [`docs/CODESPACES.md`](docs/CODESPACES.md#which-machine-type).
+* Each stack has a `-down` target that keeps its data and a `-clean`
+  (`stream-reset` for Kafka) target that deletes it. `make help` lists every
+  target.
 
 ### Real-time: Kafka + Spark Structured Streaming
 
@@ -260,8 +355,19 @@ Full explanation: [`docs/hadoop/hbase.md`](docs/hadoop/hbase.md).
 
 `docker-compose.monitoring.yml` scrapes the other stacks over their Docker
 networks (`urbanflow-hadoop`, `urbanflow-hbase-net`, `urbanflow-streaming`) and ships provisioned Grafana dashboards and
-Prometheus alert rules. Grafana http://localhost:3000, Prometheus
-http://localhost:9090. Setup and dashboards:
+Prometheus alert rules. Start it before or after the stacks you want to watch:
+
+```bash
+make monitor-up       # Prometheus + Grafana + cAdvisor + json-exporter, attached to every running stack
+make monitor-attach   # after starting another stack later (make monitor-up again works too)
+make monitor-status   # every scrape target and whether it is up; stacks not started show as down
+make monitor-down     # stop (data volumes kept)
+```
+
+Grafana http://localhost:3000 (admin / urbanflow), Prometheus
+http://localhost:9090/targets, both bound to `127.0.0.1`. Port clash?
+`GRAFANA_PORT=3300 PROMETHEUS_PORT=9095 make monitor-up` (pass the same to
+`make monitor-status`). Setup and dashboards:
 [`docs/hadoop/monitoring.md`](docs/hadoop/monitoring.md).
 
 ## Layout
