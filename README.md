@@ -30,6 +30,138 @@ The dashboard, running against the real 243.5M-row FHVHV gold layer:
 | **Behaviour** — tipping patterns, card vs. cash | **Performance** — Spark scaling and format benchmarks |
 | ![Behaviour tab](docs/screenshots/behaviour.png) | ![Performance tab](docs/screenshots/performance.png) |
 
+## Architecture
+
+### System Context
+
+The core pipeline (Spark, bronze to dashboard) is always on and runs on one
+laptop. Everything else is opt-in and runs in Docker alongside it: a Hadoop
+cluster (HDFS, YARN, MapReduce, Hive) replays the same bronze/silver/gold
+layers to show the path a real cluster would take, ZooKeeper + HBase serve the
+gold tables by key for fast lookups, Kafka + Spark Structured Streaming add a
+live real-time path, and Prometheus, Grafana, cAdvisor and a JSON exporter
+monitor all of those services at once.
+
+```mermaid
+flowchart TB
+  student(["Student / Presenter"])
+  prof(["Professor / Class"])
+  tlc[("NYC TLC Open Data\npublic trip records")]
+  groq[("Groq API\nAI summary")]
+  gh[["GitHub\ncode + data repos"]]
+  cs[["GitHub Codespaces\nzero-install run"]]
+
+  subgraph sys["UrbanFlow system boundary — one laptop, Docker"]
+    direction TB
+
+    subgraph core["Core pipeline — always on"]
+      pipe["Spark\nbronze to silver to gold to model"]
+      dash["Dashboard\nStreamlit + DuckDB"]
+      pipe --> dash
+    end
+
+    subgraph hadoop["Hadoop ecosystem — opt-in"]
+      hdfs["HDFS\nNameNode + DataNode"]
+      yarn["YARN"]
+      mr["MapReduce"]
+      hive["Hive\nmetastore + HiveServer2"]
+      yarn --- mr
+      hive --> hdfs
+    end
+
+    subgraph serve["Key-value serving — opt-in"]
+      zk["ZooKeeper"]
+      hbase["HBase"]
+      zk --> hbase
+    end
+
+    subgraph rt["Real-time path — opt-in"]
+      kafka["Kafka"]
+      stream["Spark Structured\nStreaming"]
+      kafka --> stream
+    end
+
+    subgraph mon["Monitoring — opt-in"]
+      cadv["cAdvisor"]
+      jexp["JSON exporter"]
+      prom["Prometheus"]
+      graf["Grafana"]
+      cadv --> prom
+      jexp --> prom
+      prom --> graf
+    end
+
+    pipe -. "replay bronze/silver/gold\non a real cluster" .-> hdfs
+    pipe -. "serve gold\nby key" .-> hbase
+    pipe -. "replay trips live" .-> kafka
+    stream -. "live aggregates" .-> dash
+    mon -. "scrapes every service above" .-> core
+  end
+
+  tlc -- "real trip data, one-time download" --> pipe
+  student -- "runs make / docker compose" --> sys
+  dash -- "views, explores, predicts" --> prof
+  dash -. "AI summary calls" .-> groq
+  sys -- "pushes code + gold + model" --> gh
+  gh -- "clone / open" --> cs
+  cs -- "runs dashboard" --> prof
+
+  classDef core fill:#eae6f2,stroke:#5c5280,color:#201a12
+  classDef hadoop fill:#f4e3d2,stroke:#a9652f,color:#201a12
+  classDef serve fill:#e8edf2,stroke:#6b7686,color:#201a12
+  classDef rt fill:#f6edcd,stroke:#a8821a,color:#201a12
+  classDef mon fill:#dcefe9,stroke:#2f6b5e,color:#201a12
+  class core core
+  class hadoop hadoop
+  class serve serve
+  class rt rt
+  class mon mon
+```
+
+What each part is used for:
+
+* **Core** (Spark + Dashboard) — runs bronze to silver to gold to model and
+  serves the interactive dashboard; the one piece that must work.
+* **Hadoop** (HDFS, YARN, MapReduce, Hive) — proves the same data and answers
+  hold up on a real distributed cluster, not only a laptop script.
+* **Serving** (ZooKeeper + HBase) — a second way to serve gold: key lookups
+  instead of scanning files, the way a live production system would answer a
+  query.
+* **Real-time** (Kafka + Spark Structured Streaming) — shows the project isn't
+  only batch; data can arrive and get processed continuously.
+* **Monitoring** (Prometheus, Grafana, cAdvisor, JSON exporter) — proof the
+  whole system is healthy while it runs, with real numbers, not just a claim.
+
+### Data Phases
+
+```mermaid
+flowchart LR
+  A["Bronze\ndata/raw/\nraw parquet + manifest"] -->|clean, zone-join, partition| B["Silver\ndata/curated/\nSpark DataFrame"]
+  B -->|aggregate| C["Gold\ndata/gold/\n6 answer tables"]
+  B -->|train| D["Model\ndata/models/\nduration_gbt"]
+  C --> E["Dashboard\nStreamlit + DuckDB"]
+  D -->|precomputed grid| E
+  classDef bronze fill:#a9652f,stroke:#a9652f,color:#fff
+  classDef silver fill:#6b7686,stroke:#6b7686,color:#fff
+  classDef gold fill:#a8821a,stroke:#a8821a,color:#fff
+  classDef model fill:#5c5280,stroke:#5c5280,color:#fff
+  classDef dash fill:#2f6b5e,stroke:#2f6b5e,color:#fff
+  class A bronze
+  class B silver
+  class C gold
+  class D model
+  class E dash
+```
+
+* **Bronze** — downloads the raw source and never edits it.
+* **Silver** — cleans, zone-joins and partitions it under a frozen schema.
+* **Gold** — aggregates it into six small answer tables the dashboard actually
+  reads.
+* **Model** — trains a gradient-boosted-trees duration predictor and
+  precomputes a lookup grid.
+* **Dashboard** — reads only gold and the model's grid through DuckDB, with no
+  Spark in that process.
+
 ## Fastest start: one command with Docker (any OS)
 
 No Java, no Python, no `make` needed on your machine at all — just
