@@ -545,4 +545,4 @@ docs/hadoop/                how each component works and what to say about it
   `data/raw/manifest.csv`.
 
 Full gotchas (cash tips never recorded, stray 2001/2098 timestamps, why
-speedup goes sub-linear) live in `docs/OUTCOMES.md`.
+speedup goes sub-linear) live in `docs/OUTCOMES.md`....
